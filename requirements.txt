@@ -1,0 +1,8 @@
+# Post-quantum cryptography (pure Python, installs anywhere, no compiler needed).
+# These are the real NIST standards: ML-KEM-768 (FIPS 203) and ML-DSA-44 (FIPS 204).
+kyber-py>=1.2.0
+dilithium-py>=1.4.0
+
+# AES-256-GCM for the symmetric layer. If this is unavailable the prototype
+# falls back to a stdlib construction automatically.
+cryptography>=41.0.0
