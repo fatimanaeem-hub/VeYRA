@@ -1,0 +1,1667 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PQ-DAG VSN &mdash; Proof of Concept</title>
+<style>
+/* ==========================================================================
+   PQ-VehicleGuard dashboard.
+
+   Palette: a deep azure accent with a cyan highlight, chosen to sit in the
+   same family as the presentation deck so the two read as one project. The
+   accent stays BLUE rather than teal on purpose - success is green, and a
+   teal accent sits too close to it to be told apart under deuteranopia.
+   Semantic colour (ok / caution / bad) is kept separate from the accent, so
+   "this is interactive" never reads as "this is fine".
+
+   Fonts are system stacks on purpose: the dashboard must render identically
+   on a defence laptop with no internet. Hierarchy comes from size, weight
+   and spacing rather than from a downloaded typeface.
+   ========================================================================== */
+:root{
+  color-scheme: light dark;
+
+  --bg:#eaeff5;
+  --bg-2:#e2e9f1;
+  --surface:#ffffff;
+  --surface-2:#f5f8fb;
+  --sunk:#e8eef4;
+  --line:#d9e2ec;
+  --line-2:#bccbdb;
+
+  --ink:#0d1620;
+  --ink-2:#44566a;
+  --ink-3:#6d8096;
+
+  --accent:#0f6ba8;
+  --accent-2:#2aa3c9;          /* gradient partner, deck cyan family */
+  --accent-ink:#0a5382;
+  --accent-soft:#e4f0f9;
+  --accent-line:#aed2ec;
+
+  --ok:#12784f;
+  --ok-soft:#e1f4eb;
+  --ok-line:#9cd8bd;
+
+  --bad:#b3362a;
+  --bad-soft:#fbeae7;
+  --bad-line:#edb6ad;
+
+  --caution:#8a6410;
+  --caution-soft:#f9f0dc;
+  --caution-line:#e3cfa4;
+
+  --pending:#5c6b7d;
+  --pending-soft:#e7ecf2;
+
+  --grad-accent:linear-gradient(135deg,var(--accent) 0%,var(--accent-2) 100%);
+  --grad-surface:linear-gradient(180deg,#ffffff 0%,#fafcfe 100%);
+  --grad-head:linear-gradient(180deg,#f7fafc 0%,#eef4f9 100%);
+
+  --shadow-sm:0 1px 2px rgba(13,22,32,.05), 0 1px 1px rgba(13,22,32,.03);
+  --shadow-md:0 4px 14px rgba(13,22,32,.07), 0 1px 3px rgba(13,22,32,.05);
+  --shadow-lg:0 14px 38px rgba(13,22,32,.14), 0 2px 8px rgba(13,22,32,.07);
+  --ring:0 0 0 3px var(--accent-soft);
+
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,"Cascadia Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  --sans:system-ui,-apple-system,"Segoe UI Variable Text","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+
+  --r-sm:7px; --r-md:10px; --r-lg:14px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#070b12;
+    --bg-2:#0b1019;
+    --surface:#111722;
+    --surface-2:#161d2a;
+    --sunk:#1a2232;
+    --line:#232c3d;
+    --line-2:#344055;
+
+    --ink:#e9eef6;
+    --ink-2:#a9b6c8;
+    --ink-3:#7d8ca4;
+
+    --accent:#3aa0d8;
+    --accent-2:#5fd0e8;
+    --accent-ink:#7cc4ea;
+    --accent-soft:#0e2a3d;
+    --accent-line:#27516e;
+
+    --ok:#34b07c;
+    --ok-soft:#0b2419;
+    --ok-line:#1e4f39;
+
+    --bad:#e0664f;
+    --bad-soft:#2c1512;
+    --bad-line:#5d2c24;
+
+    --caution:#dfa94a;
+    --caution-soft:#261d0e;
+    --caution-line:#50401b;
+
+    --pending:#6a7a92;
+    --pending-soft:#1b2333;
+
+    --grad-accent:linear-gradient(135deg,#1c6f9e 0%,#2f9cc0 100%);
+    --grad-surface:linear-gradient(180deg,#141b27 0%,#111722 100%);
+    --grad-head:linear-gradient(180deg,#1a2231 0%,#151c29 100%);
+
+    --shadow-sm:0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:0 4px 16px rgba(0,0,0,.5);
+    --shadow-lg:0 16px 40px rgba(0,0,0,.62);
+    --ring:0 0 0 3px rgba(58,160,216,.22);
+  }
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; color:var(--ink);
+  background:var(--bg);
+  background-image:
+    radial-gradient(1100px 520px at 12% -8%, color-mix(in srgb,var(--accent) 9%, transparent) 0%, transparent 62%),
+    radial-gradient(900px 460px at 92% -4%, color-mix(in srgb,var(--accent-2) 8%, transparent) 0%, transparent 58%),
+    linear-gradient(180deg,var(--bg) 0%,var(--bg-2) 100%);
+  background-attachment:fixed;
+  font-family:var(--sans); font-size:14.5px; line-height:1.6;
+  -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  font-variant-numeric:tabular-nums;
+}
+:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+::-webkit-scrollbar{width:11px; height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line-2); border-radius:99px;
+  border:3px solid transparent; background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--ink-3); background-clip:content-box}
+
+/* ---------- app bar ---------- */
+.appbar{
+  position:sticky; top:0; z-index:40;
+  background:var(--surface);
+  background-image:var(--grad-head);
+  border-bottom:1px solid var(--line);
+  box-shadow:var(--shadow-sm);
+  backdrop-filter:saturate(1.2);
+}
+.appbar::before{
+  content:""; display:block; height:3px; background:var(--grad-accent);
+}
+.appbar-in{max-width:1720px; margin:0 auto; padding:15px 24px}
+.brand{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+.brand h1{
+  font-size:17.5px; font-weight:700; margin:0; letter-spacing:-.018em;
+  color:var(--ink);
+}
+.brand .sub{font-size:12.5px; color:var(--ink-3); letter-spacing:.005em}
+
+.chips{display:flex; gap:7px; flex-wrap:wrap; margin-top:11px}
+.chip{
+  display:inline-flex; align-items:center; gap:6px;
+  font-family:var(--mono); font-size:11px; letter-spacing:-.005em; font-weight:500;
+  background:var(--surface); border:1px solid var(--line);
+  color:var(--ink-2); padding:4px 10px; border-radius:99px;
+  box-shadow:var(--shadow-sm);
+}
+.chip .dot{width:6px; height:6px; border-radius:50%; background:var(--ink-3);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--ink-3) 22%, transparent)}
+.chip.live{border-color:var(--ok-line); background:var(--ok-soft); color:var(--ok)}
+.chip.live .dot{background:var(--ok);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 26%, transparent)}
+.chip.alarm{border-color:var(--bad-line); background:var(--bad-soft); color:var(--bad)}
+.chip.alarm .dot{background:var(--bad);
+  box-shadow:0 0 0 2px color-mix(in srgb,var(--bad) 26%, transparent)}
+
+/* ---------- control bar ---------- */
+.controls{
+  display:flex; gap:20px; align-items:flex-end; flex-wrap:wrap;
+  margin-top:16px; padding-top:16px; border-top:1px solid var(--line);
+}
+.params{
+  display:flex; gap:2px; background:var(--sunk); padding:6px;
+  border-radius:var(--r-md); border:1px solid var(--line);
+  box-shadow:inset 0 1px 2px rgba(13,22,32,.04);
+}
+.param{display:flex; flex-direction:column; gap:4px; padding:0 8px}
+.param label{
+  font-size:9.5px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--ink-3); white-space:nowrap;
+}
+.param input{
+  width:66px; font:650 13.5px/1 var(--mono); color:var(--ink);
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);
+  padding:7px 8px; text-align:center;
+  transition:border-color .14s ease, box-shadow .14s ease;
+}
+.param input:hover{border-color:var(--line-2)}
+.param input:focus{border-color:var(--accent); outline:none; box-shadow:var(--ring)}
+/* a value the network decides, not the operator: no border, no affordance */
+.param .lock{
+  font-size:8px; font-weight:800; letter-spacing:.09em; color:var(--accent-ink);
+  background:var(--accent-soft); border:1px solid var(--accent-line); border-radius:4px;
+  padding:1px 5px; margin-left:4px; text-transform:uppercase;
+}
+.param output.readonly{
+  display:block; width:66px; font:650 13.5px/1 var(--mono); color:var(--ink-2);
+  background:transparent; border:1px dashed var(--line-2);
+  border-radius:var(--r-sm); padding:7px 8px; text-align:center;
+  font-variant-numeric:tabular-nums; cursor:default;
+}
+.param .hint{
+  font-family:var(--mono); font-size:8.5px; color:var(--ink-3);
+  white-space:nowrap; text-align:center; letter-spacing:.01em;
+}
+.param.derived{justify-content:flex-start}
+.param.batch{justify-content:flex-start; min-width:118px}
+.switch{display:inline-flex; align-items:center; gap:8px; cursor:pointer;
+  padding:6px 0 5px}
+.switch input{position:absolute; opacity:0; width:0; height:0}
+.switch .track{
+  position:relative; width:34px; height:19px; border-radius:99px; flex:0 0 auto;
+  background:var(--line-2); border:1px solid transparent;
+  transition:background .16s ease;
+}
+.switch .knob{
+  position:absolute; top:2px; left:2px; width:15px; height:15px; border-radius:50%;
+  background:#fff; box-shadow:0 1px 2px rgba(13,22,32,.3);
+  transition:transform .16s cubic-bezier(.2,.8,.3,1);
+}
+.switch input:checked + .track{background:var(--grad-accent)}
+.switch input:checked + .track .knob{transform:translateX(15px)}
+.switch input:focus-visible + .track{box-shadow:var(--ring)}
+.switch-t{
+  font:650 11.5px/1 var(--mono); color:var(--ink-2); white-space:nowrap;
+  letter-spacing:-.01em;
+}
+.switch input:checked ~ .switch-t{color:var(--accent-ink)}
+.actions{display:flex; gap:9px; flex-wrap:wrap; align-items:center}
+.buildinfo{
+  font-family:var(--mono); font-size:11.5px; color:var(--ink-3);
+  padding-bottom:2px; max-width:340px; line-height:1.5;
+}
+
+/* ---------- buttons ---------- */
+.btn{
+  --btn-fg:#fff; --btn-bd:transparent;
+  position:relative; display:inline-flex; align-items:center; gap:8px;
+  font:650 13px/1 var(--sans); letter-spacing:-.005em;
+  background:var(--grad-accent); color:var(--btn-fg);
+  border:1px solid var(--btn-bd); border-radius:var(--r-sm);
+  padding:10px 16px; cursor:pointer; white-space:nowrap;
+  transition:filter .14s ease, transform .07s ease, box-shadow .14s ease;
+  box-shadow:0 1px 2px rgba(13,22,32,.14), inset 0 1px 0 rgba(255,255,255,.16);
+}
+.btn:hover:not(:disabled){filter:brightness(1.08) saturate(1.05);
+  box-shadow:0 3px 10px rgba(15,107,168,.26), inset 0 1px 0 rgba(255,255,255,.16)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:disabled{opacity:.42; cursor:not-allowed; box-shadow:none; filter:grayscale(.3)}
+.btn.secondary{
+  background:var(--surface); background-image:var(--grad-surface);
+  color:var(--ink); border-color:var(--line-2);
+  box-shadow:var(--shadow-sm);
+}
+.btn.secondary:hover:not(:disabled){background-image:none; background:var(--surface-2);
+  filter:none; border-color:var(--ink-3); box-shadow:var(--shadow-sm)}
+.btn.danger{background:linear-gradient(135deg,var(--bad) 0%,#c8503f 100%)}
+.btn.danger:hover:not(:disabled){box-shadow:0 3px 10px rgba(179,54,42,.28)}
+.btn.sm{font-size:12px; padding:7px 12px}
+.btn .spin{
+  width:12px; height:12px; border-radius:50%; flex:0 0 auto;
+  border:2px solid currentColor; border-top-color:transparent;
+  animation:sp .7s linear infinite; display:none;
+}
+.btn[data-busy="1"] .spin{display:block}
+.btn[data-busy="1"]{pointer-events:none; opacity:.78}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- layout ---------- */
+main{max-width:1720px; margin:0 auto; padding:24px 24px 80px}
+.tabs{display:flex; gap:4px; margin-bottom:22px; border-bottom:1px solid var(--line)}
+.tab{
+  appearance:none; background:none; border:0; cursor:pointer;
+  font:650 13.5px/1 var(--sans); color:var(--ink-3); letter-spacing:-.005em;
+  padding:12px 17px; border-bottom:2px solid transparent; margin-bottom:-1px;
+  border-radius:var(--r-sm) var(--r-sm) 0 0;
+  transition:color .14s ease, background .14s ease;
+}
+.tab:hover{color:var(--ink); background:color-mix(in srgb,var(--accent) 5%, transparent)}
+.tab[aria-selected="true"]{
+  color:var(--accent-ink); border-bottom-color:var(--accent);
+  background:color-mix(in srgb,var(--accent) 7%, transparent);
+}
+
+.grid{display:grid; gap:18px}
+.g-live{grid-template-columns:330px minmax(0,1fr) 348px}
+.g-2{grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+@media(max-width:1280px){.g-live{grid-template-columns:1fr}}
+
+.card{
+  background:var(--surface); background-image:var(--grad-surface);
+  border:1px solid var(--line);
+  border-radius:var(--r-lg); box-shadow:var(--shadow-md); overflow:hidden;
+}
+.card + .card{margin-top:18px}
+.grid > .card + .card{margin-top:0}
+.card-h{
+  padding:14px 18px 12px; border-bottom:1px solid var(--line);
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  background-image:var(--grad-head);
+}
+.card-h h2{
+  font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink-2); margin:0;
+}
+.card-b{padding:17px 18px}
+.hint{font-size:12.5px; color:var(--ink-3); margin:0 0 14px; line-height:1.6}
+.hint:last-child{margin-bottom:0}
+
+/* ---------- stat tiles ---------- */
+.stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(106px,1fr)); gap:0;
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md);
+  overflow:hidden}
+.stat{background:var(--surface); padding:13px 14px 14px; position:relative;
+  box-shadow:inset -1px -1px 0 var(--line);
+  transition:background .14s ease}
+.stat:hover{background:var(--surface-2)}
+.stat .v{
+  display:block; font:700 27px/1.08 var(--sans); letter-spacing:-.032em;
+  font-variant-numeric:tabular-nums; color:var(--ink);
+}
+.stat .v small{font-size:14px; font-weight:650; color:var(--ink-3); margin-left:2px}
+.stat .l{
+  display:block; font-size:9.5px; font-weight:800; letter-spacing:.085em;
+  text-transform:uppercase; color:var(--ink-3); margin-top:6px;
+}
+.stat.ok .v{color:var(--ok)}
+.stat.bad .v{color:var(--bad)}
+.stat.acc .v{color:var(--accent)}
+.stat.ok::before,.stat.bad::before,.stat.acc::before{
+  content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+}
+.stat.ok::before{background:var(--ok)}
+.stat.bad::before{background:var(--bad)}
+.stat.acc::before{background:var(--grad-accent)}
+
+/* ---------- chart ---------- */
+.chartwrap{position:relative; margin-top:18px}
+/* Only the time-series chart stretches. The DAG keeps its natural width so it
+   scrolls horizontally inside .tw instead of being squashed unreadable. */
+.chartwrap > svg{display:block; width:100%; overflow:visible}
+#dag{display:block; width:auto; max-width:none}
+.legend{display:flex; gap:18px; margin-top:12px; font-size:12px; color:var(--ink-2);
+  flex-wrap:wrap}
+.legend b{display:inline-flex; align-items:center; gap:7px; font-weight:650}
+.swatch{width:12px; height:3px; border-radius:2px; display:inline-block}
+
+.tip{
+  position:absolute; pointer-events:none; z-index:30; opacity:0;
+  transition:opacity .1s ease; transform:translate(-50%,-100%);
+  background:var(--surface); border:1px solid var(--line-2);
+  border-radius:var(--r-md); box-shadow:var(--shadow-lg);
+  padding:9px 12px; font-size:12px; line-height:1.55; white-space:nowrap;
+  color:var(--ink);
+}
+.tip[data-on="1"]{opacity:1}
+.tip .t{font-family:var(--mono); font-size:10.5px; color:var(--ink-3);
+  display:block; margin-bottom:4px}
+.tip .r{display:flex; align-items:center; gap:8px; justify-content:space-between}
+.tip .r span:last-child{font-family:var(--mono); font-weight:650}
+.tip.wide{white-space:normal; max-width:290px; transform:translate(-50%,-100%)}
+
+/* ---------- devices ---------- */
+.scroll{max-height:640px; overflow-y:auto; margin:-3px; padding:3px}
+.scroll > *{margin:3px}
+.dev{
+  border:1px solid var(--line); border-radius:var(--r-md);
+  padding:11px 12px; background:var(--surface-2); margin-bottom:9px;
+  transition:border-color .14s ease, box-shadow .14s ease, transform .14s ease;
+}
+.dev:last-child{margin-bottom:0}
+.dev:hover{border-color:var(--line-2); box-shadow:var(--shadow-sm)}
+.dev:focus-within{border-color:var(--accent); box-shadow:var(--ring)}
+.dev-h{display:flex; justify-content:space-between; align-items:center; gap:8px}
+.dev-h code{font-family:var(--mono); font-size:12.5px; font-weight:650; color:var(--ink)}
+.dev-gw{
+  display:inline-flex; align-items:center; gap:5px; font-family:var(--mono);
+  font-size:10.5px; color:var(--ink-3);
+}
+.dot{width:6px; height:6px; border-radius:50%; display:inline-block; flex:0 0 auto}
+.dot.ok{background:var(--ok); box-shadow:0 0 0 2px color-mix(in srgb,var(--ok) 24%, transparent)}
+.dot.no{background:var(--bad); box-shadow:0 0 0 2px color-mix(in srgb,var(--bad) 24%, transparent)}
+.dev-meta{font-size:11px; color:var(--ink-3); margin-top:4px; font-family:var(--mono)}
+.dev-in{display:flex; gap:7px; margin-top:9px}
+.dev-in input{
+  flex:1; min-width:0; font:550 13px/1 var(--mono); color:var(--ink);
+  background:var(--surface); border:1px solid var(--line); border-radius:var(--r-sm);
+  padding:8px 10px; transition:border-color .14s ease, box-shadow .14s ease;
+}
+.dev-in input:focus{border-color:var(--accent); outline:none; box-shadow:var(--ring)}
+
+/* ---------- events ---------- */
+.ev{
+  border-left:3px solid var(--line-2); padding:6px 0 7px 12px; margin-bottom:9px;
+  font-size:12.5px; line-height:1.55; border-radius:0 var(--r-sm) var(--r-sm) 0;
+  transition:background .14s ease;
+}
+.ev:hover{background:var(--surface-2)}
+.ev:last-child{margin-bottom:0}
+.ev time{font-family:var(--mono); font-size:10px; color:var(--ink-3);
+  display:block; margin-bottom:3px; letter-spacing:.03em}
+.ev.transaction{border-color:var(--accent)}
+.ev.finalized{border-color:var(--ok)}
+.ev.rejected,.ev.error{border-color:var(--bad)}
+.ev.security{border-color:var(--caution)}
+.ev.setup{border-color:var(--ink-3)}
+
+/* ---------- tables ---------- */
+.tw{overflow-x:auto; border:1px solid var(--line); border-radius:var(--r-md);
+  background:var(--surface)}
+table{width:100%; border-collapse:collapse; font-size:12.5px}
+th,td{text-align:left; padding:9px 12px; border-bottom:1px solid var(--line);
+  vertical-align:top}
+thead th{
+  font-size:9.5px; font-weight:800; letter-spacing:.085em; text-transform:uppercase;
+  color:var(--ink-3); background-image:var(--grad-head); white-space:nowrap;
+  position:sticky; top:0;
+}
+tbody tr{transition:background .12s ease}
+tbody tr:hover{background:var(--surface-2)}
+tbody tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums}
+td.m{font-family:var(--mono); font-size:12px}
+
+.pill{
+  display:inline-block; font-family:var(--mono); font-size:10px; font-weight:700;
+  letter-spacing:.045em; padding:3px 8px; border-radius:5px;
+  background:var(--sunk); color:var(--ink-2); border:1px solid var(--line);
+}
+.pill.ok{background:var(--ok-soft); color:var(--ok); border-color:var(--ok-line)}
+.pill.bad{background:var(--bad-soft); color:var(--bad); border-color:var(--bad-line)}
+
+/* ---------- banners / empty ---------- */
+.banner{
+  border-radius:var(--r-md); padding:13px 16px; font-size:13px; margin-bottom:18px;
+  border:1px solid var(--line); background:var(--surface); line-height:1.6;
+  box-shadow:var(--shadow-sm); border-left-width:4px;
+  border-left-color:var(--ink-3);
+}
+.banner.caution{background:var(--caution-soft); border-color:var(--caution-line);
+  border-left-color:var(--caution)}
+.banner.alarm{background:var(--bad-soft); border-color:var(--bad-line);
+  border-left-color:var(--bad)}
+.banner b{font-weight:700}
+
+.empty{
+  text-align:center; padding:52px 24px; color:var(--ink-3);
+}
+.empty .big{font-size:15.5px; font-weight:650; color:var(--ink-2); margin-bottom:7px}
+.empty p{margin:0 auto; max-width:46ch; font-size:13px; line-height:1.65}
+
+.kv{
+  font-family:var(--mono); font-size:12px; line-height:1.9; white-space:pre;
+  background:var(--sunk); border:1px solid var(--line);
+  border-radius:var(--r-md); padding:14px 16px; overflow-x:auto; color:var(--ink-2);
+}
+.kv b{color:var(--ink); font-weight:650}
+
+.bar-row{display:grid; grid-template-columns:116px 1fr 94px; gap:12px;
+  align-items:center; margin-bottom:10px; font-size:12.5px}
+.bar{display:block; height:26px; border-radius:5px;
+  background:var(--grad-accent); min-width:3px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.18)}
+.bar.alt{background:linear-gradient(135deg,var(--pending) 0%,#7a8799 100%)}
+.bar-row .n{text-align:right; font-family:var(--mono); font-weight:650}
+
+/* ---------- toast ---------- */
+#toast{
+  position:fixed; right:22px; bottom:22px; z-index:100;
+  display:flex; flex-direction:column; gap:10px; align-items:flex-end;
+}
+.toast{
+  background:var(--surface); border:1px solid var(--bad-line);
+  border-left:4px solid var(--bad); border-radius:var(--r-md);
+  box-shadow:var(--shadow-lg); padding:12px 16px; font-size:13px;
+  max-width:390px; animation:ti .2s cubic-bezier(.2,.8,.3,1);
+}
+.toast.info{border-color:var(--line-2); border-left-color:var(--accent)}
+.toast b{display:block; font-size:10.5px; letter-spacing:.075em; text-transform:uppercase;
+  color:var(--ink-3); margin-bottom:4px; font-weight:800}
+@keyframes ti{from{opacity:0; transform:translateY(8px) scale(.98)}}
+
+/* ---------- anomaly detection (simulated) ---------- */
+.simtag{
+  display:inline-flex; align-items:center; gap:5px; font-family:var(--mono);
+  font-size:9.5px; font-weight:800; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--caution); background:var(--caution-soft);
+  border:1px solid var(--caution-line); padding:3px 9px; border-radius:99px;
+}
+.tab .simtag{margin-left:7px; font-size:8.5px; padding:1px 6px}
+
+.metrics{display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr));
+  gap:0; background:var(--surface); border:1px solid var(--line);
+  border-radius:var(--r-md); overflow:hidden}
+.metric{background:var(--surface); padding:15px 16px; transition:background .14s ease;
+  box-shadow:inset -1px -1px 0 var(--line)}
+.metric:hover{background:var(--surface-2)}
+.metric .mv{display:block; font:700 31px/1.04 var(--sans); letter-spacing:-.034em;
+  color:var(--accent); font-variant-numeric:tabular-nums}
+.metric .ml{display:block; font-size:9.5px; font-weight:800; letter-spacing:.085em;
+  text-transform:uppercase; color:var(--ink-3); margin-top:7px}
+.metric .mb{height:4px; border-radius:99px; background:var(--sunk); margin-top:10px;
+  overflow:hidden}
+.metric .mb i{display:block; height:100%; background:var(--grad-accent);
+  border-radius:99px; transition:width .35s cubic-bezier(.2,.8,.3,1)}
+
+.cm{display:grid; grid-template-columns:auto 1fr 1fr; gap:1px;
+  background:var(--line); border:1px solid var(--line); border-radius:var(--r-md);
+  overflow:hidden; font-size:12.5px}
+.cm > div{background:var(--surface); padding:12px 14px}
+.cm .hd{background-image:var(--grad-head); font-size:9.5px; font-weight:800;
+  letter-spacing:.085em; text-transform:uppercase; color:var(--ink-3);
+  display:flex; align-items:center; justify-content:center; text-align:center}
+.cm .rh{background-image:var(--grad-head); font-size:9.5px; font-weight:800;
+  letter-spacing:.085em; text-transform:uppercase; color:var(--ink-3);
+  display:flex; align-items:center; writing-mode:horizontal-tb; white-space:nowrap}
+.cm .cell{position:relative}
+.cm .cell .cn{display:block; font:700 23px/1.08 var(--sans); letter-spacing:-.025em;
+  font-variant-numeric:tabular-nums}
+.cm .cell .cl{display:block; font-size:10.5px; color:var(--ink-3); margin-top:4px}
+.cm .cell.good{box-shadow:inset 3px 0 0 var(--ok)}
+.cm .cell.good .cn{color:var(--ok)}
+.cm .cell.err{box-shadow:inset 3px 0 0 var(--bad)}
+.cm .cell.err .cn{color:var(--bad)}
+
+.stream{max-height:290px; overflow-y:auto; font-family:var(--mono); font-size:11.5px}
+.srow{display:grid; grid-template-columns:78px 1fr 62px 74px; gap:10px;
+  padding:7px 9px; border-bottom:1px solid var(--line); align-items:center}
+.srow:last-child{border-bottom:0}
+.srow.hit{background:var(--bad-soft)}
+.srow .v{color:var(--ink-2)}
+.srow .verdict{font-weight:800; font-size:10px; letter-spacing:.055em}
+.srow.hit .verdict{color:var(--bad)}
+.srow.norm .verdict{color:var(--ok)}
+.srow .conf{color:var(--ink-3); text-align:right}
+
+.agent{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  gap:12px}
+.agent .f{display:flex; flex-direction:column; gap:5px}
+.agent label{font-size:9.5px; font-weight:800; letter-spacing:.085em;
+  text-transform:uppercase; color:var(--ink-3)}
+.agent select,.agent input{
+  font:650 13px/1 var(--mono); color:var(--ink); background:var(--surface);
+  border:1px solid var(--line); border-radius:var(--r-sm); padding:9px 10px;
+  transition:border-color .14s ease, box-shadow .14s ease;
+}
+.agent select:focus,.agent input:focus{border-color:var(--accent); outline:none;
+  box-shadow:var(--ring)}
+
+.hidden{display:none!important}
+.q{border-left:3px solid var(--accent); padding:3px 0 3px 17px; margin-bottom:24px}
+.q h3{margin:0 0 8px; font-size:15px; font-weight:700; letter-spacing:-.012em;
+  color:var(--ink)}
+.q p{margin:0 0 10px; font-size:13.5px; line-height:1.65; max-width:78ch}
+.q ul{margin:0; padding-left:20px; font-size:13.5px; line-height:1.65; max-width:78ch}
+.q li{margin-bottom:7px}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="appbar-in">
+    <div class="brand">
+      <h1>Post-Quantum DAG Blockchain for Vehicular Sensor Networks</h1>
+      <span class="sub">Proposal-stage proof of concept</span>
+    </div>
+    <div class="chips" id="chips"></div>
+
+    <div class="controls">
+      <div class="params">
+        <div class="param"><label for="pGw">Gateways</label>
+          <input id="pGw" type="number" value="3" min="1" max="8"></div>
+        <div class="param"><label for="pSn">Sensors/GW</label>
+          <input id="pSn" type="number" value="4" min="1" max="8"></div>
+        <div class="param derived" title="Table III: FT follows from the number of nodes. It cannot be set by hand.">
+          <label for="pFt">Threshold <span class="lock">derived</span></label>
+          <output id="pFt" class="readonly">3</output>
+          <span class="hint" id="pFtHint">15 nodes &middot; Small DAG</span></div>
+        <div class="param"><label for="pD">PoPQW bits</label>
+          <input id="pD" type="number" value="13" min="8" max="20"></div>
+        <div class="param"><label for="pT">Signers</label>
+          <input id="pT" type="number" value="3" min="1" max="8"></div>
+        <div class="param batch" title="Off: each identity is written to BC_ID as it registers, one block each. On: identities are held until every node has registered, then committed as one epoch with a single root and a single block.">
+          <label for="pBatch">Registration</label>
+          <label class="switch">
+            <input id="pBatch" type="checkbox">
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-t" id="pBatchT">per node</span>
+          </label>
+          <span class="hint" id="pBatchHint">1 block per identity</span></div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="bBuild"><span class="spin"></span><span>Build network</span></button>
+        <button class="btn secondary" id="bTraffic" disabled><span class="spin"></span><span>Start sensor traffic</span></button>
+        <button class="btn secondary" id="bPublish" disabled><span class="spin"></span><span>Publish all gateways</span></button>
+      </div>
+      <div class="buildinfo" id="buildInfo"></div>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div id="backendBanner"></div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-tab="live">Live network</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="ai">Anomaly detection<span class="simtag">sim</span></button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="evidence">Evidence</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="poc">The five PoC questions</button>
+  </div>
+
+  <!-- ================= LIVE ================= -->
+  <section id="tab-live">
+    <div id="emptyState" class="card">
+      <div class="empty">
+        <div class="big">No network yet</div>
+        <p>Set the parameters above and choose <b>Build network</b>. Every sensor
+           will register on the identity ledger and run a real post-quantum
+           handshake with its gateway.</p>
+      </div>
+    </div>
+
+    <div id="liveGrid" class="grid g-live hidden">
+      <div>
+        <div class="card">
+          <div class="card-h"><h2>IoT sensor devices</h2><span class="pill" id="devCount"></span></div>
+          <div class="card-b">
+            <p class="hint">Each device holds its own post-quantum session key.
+               Type a reading and press Enter &mdash; it is encrypted on the
+               device and verified at the gateway.</p>
+            <div id="devices" class="scroll"></div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-h"><h2>Ledger state</h2><span class="pill" id="tickPill"></span></div>
+          <div class="card-b">
+            <div class="stats" id="stats"></div>
+            <div class="chartwrap">
+              <svg id="chart" height="164" role="img"
+                   aria-label="Transactions created and finalised over time"></svg>
+              <div class="tip" id="chartTip"></div>
+            </div>
+            <div class="legend">
+              <b><span class="swatch" style="background:var(--accent)"></span> Created</b>
+              <b><span class="swatch" style="background:var(--ok)"></span> Finalised</b>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>DAG structure</h2><span class="pill" id="dagPill"></span></div>
+          <div class="card-b">
+            <p class="hint">One lane per gateway. Every transaction names two
+               parents; the number inside a node is how many later transactions
+               reference it. At the threshold it is signed and turns green.</p>
+            <div class="chartwrap">
+              <div class="tw" style="border-radius:var(--r-md)">
+                <svg id="dag" height="340"></svg>
+              </div>
+              <div class="tip wide" id="dagTip"></div>
+            </div>
+            <div class="legend">
+              <b><span class="dot" style="background:var(--pending)"></span> Pending</b>
+              <b><span class="dot" style="background:var(--ok)"></span> Finalised</b>
+              <b><span class="dot" style="background:transparent;border:1.5px solid var(--line-2)"></span> Genesis</b>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-h"><h2>Registration ledger &mdash; BC_ID</h2></div>
+          <div class="card-b"><div class="tw"><table id="bcid"></table></div></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-h"><h2>Event log</h2></div>
+          <div class="card-b">
+            <p class="hint">Every cryptographic step, newest first.</p>
+            <div id="events" class="scroll"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= ANOMALY DETECTION (SIMULATED) ================= -->
+  <section id="tab-ai" class="hidden">
+    <div class="banner caution">
+      <b>Simulated results &mdash; no model is trained or executed here.</b>
+      This section is a user-interface mock-up of our planned contribution: a
+      reinforcement-learning agent that separates normal sensor behaviour from
+      anomalous behaviour. Every number below is generated in the browser to show
+      what the finished component will report. It is not evidence, and it is not
+      referenced by the five PoC questions.
+    </div>
+
+    <div class="grid g-2">
+      <div class="card">
+        <div class="card-h"><h2>Agent &amp; attack scenario</h2><span class="simtag">simulated</span></div>
+        <div class="card-b">
+          <p class="hint">Choose the agent and the attack to inject, then run a
+             scenario. Each run draws fresh values, which is why the numbers move.</p>
+          <div class="agent">
+            <div class="f"><label for="aAlgo">RL algorithm</label>
+              <select id="aAlgo">
+                <option value="DQN">Deep Q-Network (DQN)</option>
+                <option value="PPO">Proximal Policy Optimisation</option>
+                <option value="A2C">Advantage Actor-Critic</option>
+              </select></div>
+            <div class="f"><label for="aAttack">Attack injected</label>
+              <select id="aAttack">
+                <option value="all">All attack classes</option>
+                <option value="fdi">False data injection</option>
+                <option value="spoof">Node spoofing</option>
+                <option value="replay">Replay</option>
+                <option value="dos">Denial of service</option>
+              </select></div>
+            <div class="f"><label for="aEp">Episodes</label>
+              <input id="aEp" type="number" value="300" min="50" max="2000" step="50"></div>
+            <div class="f"><label for="aRate">Attack ratio %</label>
+              <input id="aRate" type="number" value="15" min="2" max="45"></div>
+          </div>
+          <div style="margin-top:14px; display:flex; gap:8px; align-items:center">
+            <button class="btn" id="bAI"><span class="spin"></span><span>Run simulated attack</span></button>
+            <span class="buildinfo" id="aiInfo"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Detection performance</h2><span class="simtag">simulated</span></div>
+        <div class="card-b">
+          <div class="metrics" id="aiMetrics">
+            <div class="metric"><span class="mv">&mdash;</span><span class="ml">precision</span></div>
+            <div class="metric"><span class="mv">&mdash;</span><span class="ml">recall</span></div>
+            <div class="metric"><span class="mv">&mdash;</span><span class="ml">f1 score</span></div>
+            <div class="metric"><span class="mv">&mdash;</span><span class="ml">accuracy</span></div>
+          </div>
+          <p class="hint" style="margin-top:13px" id="aiDerived">
+             Run a scenario to populate. Precision, recall and F1 are computed
+             from the confusion matrix below, so the two always agree.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Confusion matrix</h2><span class="simtag">simulated</span></div>
+        <div class="card-b"><div id="aiCM"></div>
+          <p class="hint" style="margin-top:11px">Rows are what actually happened,
+             columns are what the agent decided.</p></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Learning curve</h2><span class="simtag">simulated</span></div>
+        <div class="card-b">
+          <p class="hint">F1 on the held-out validation split as training
+             progresses. The agent converges on the score reported above.</p>
+          <div class="chartwrap">
+            <svg id="aiChart" height="150" role="img"
+                 aria-label="Simulated detection F1 by training episode"></svg>
+            <div class="tip" id="aiTip"></div>
+          </div>
+          <div class="legend"><b><span class="swatch" style="background:var(--accent)"></span>
+            Validation F1</b></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Per-attack breakdown</h2><span class="simtag">simulated</span></div>
+        <div class="card-b"><div id="aiByClass"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Classification stream</h2><span class="simtag">simulated</span></div>
+        <div class="card-b">
+          <p class="hint">The most recent readings as the agent would label them.</p>
+          <div class="stream" id="aiStream"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= EVIDENCE ================= -->
+  <section id="tab-evidence" class="hidden">
+    <div class="grid g-2">
+      <div class="card">
+        <div class="card-h"><h2>1 &middot; What post-quantum crypto costs</h2></div>
+        <div class="card-b">
+          <p class="hint">Measured on this machine against the classical
+             primitives PQC would replace. Runs without a network.</p>
+          <button class="btn sm" id="bBench"><span class="spin"></span><span>Run benchmark</span></button>
+          <div id="benchOut" style="margin-top:14px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>2 &middot; DAG versus linear chain</h2></div>
+        <div class="card-b">
+          <p class="hint">Same PoPQW difficulty, same signatures per entry. Only
+             the structure differs: a linear chain cannot start block N+1 before
+             block N exists. Gateways run as separate processes.</p>
+          <button class="btn sm" id="bExp"><span class="spin"></span><span>Run experiment</span></button>
+          <div id="expOut" style="margin-top:14px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>3 &middot; Does it reject bad input?</h2></div>
+        <div class="card-b">
+          <p class="hint">Five attacks against the live network. Requires a built
+             network.</p>
+          <button class="btn sm" id="bSec" disabled><span class="spin"></span><span>Run adversarial checks</span></button>
+          <div id="secOut" style="margin-top:14px"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-h"><h2>Known limitations</h2></div>
+        <div class="card-b">
+          <p class="hint">Stated up front, because a proof of concept that hides
+             its simplifications is not evidence.</p>
+          <div id="notes"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= POC ================= -->
+  <section id="tab-poc" class="hidden">
+    <div class="card">
+      <div class="card-h"><h2>Proposal-stage proof of concept</h2></div>
+      <div class="card-b">
+        <p class="hint">Filled in from the runs above. Run all three experiments,
+           then read this to the panel.</p>
+        <div id="pocOut"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="toast" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt = (n,d=2) => (n===null||n===undefined||Number.isNaN(n)) ? '—' : Number(n).toFixed(d);
+
+let STATE = {}, BACKEND = {}, BENCH = null, EXP = null;
+let DEVICE_KEY = null, DAG_HOVER = false, POLLS = 0;
+
+/* ---------- toast ---------- */
+function toast(msg, kind='error', title=null){
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind === 'info' ? ' info' : '');
+  el.innerHTML = `<b>${esc(title || (kind==='info'?'Note':'Something went wrong'))}</b>${esc(msg)}`;
+  $('#toast').appendChild(el);
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 250); }, 5200);
+}
+
+/* ---------- api ---------- */
+async function api(path, body){
+  let res;
+  try{
+    res = await fetch(path, body ? {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  }catch(e){
+    toast('Cannot reach the server. Is python run.py still running?');
+    throw e;
+  }
+  let data;
+  try { data = await res.json(); }
+  catch(e){ toast(`Server returned ${res.status} with no readable body.`); throw e; }
+  if (data && data.error && !('ok' in data)){ toast(data.error); }
+  return data;
+}
+
+function busy(btn, on){
+  btn.dataset.busy = on ? '1' : '';
+  btn.disabled = !!on;
+}
+async function run(btn, fn){
+  busy(btn, true);
+  try { await fn(); }
+  finally { busy(btn, false); gate(); }
+}
+
+/* ---------- gating: what is clickable when ---------- */
+function gate(){
+  const built = !!STATE.built;
+  [['#bTraffic',built],['#bPublish',built],['#bSec',built]].forEach(([sel,ok])=>{
+    const b = $(sel);
+    if (b.dataset.busy !== '1') b.disabled = !ok;
+    b.title = ok ? '' : 'Build a network first';
+  });
+}
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x =>
+    x.setAttribute('aria-selected', String(x === t)));
+  ['live','ai','evidence','poc'].forEach(n =>
+    $('#tab-' + n).classList.toggle('hidden', n !== t.dataset.tab));
+  if (t.dataset.tab === 'poc') renderPoc();
+  if (t.dataset.tab === 'ai' && AI) renderAI(AI);   // re-fit the chart width
+});
+
+/* ---------- backend chips ---------- */
+api('/api/backend').then(b => {
+  BACKEND = b;
+  $('#chips').innerHTML =
+    `<span class="chip ${b.post_quantum?'live':'alarm'}"><span class="dot"></span>${
+      b.post_quantum?'post-quantum active':'NOT post-quantum'}</span>
+     <span class="chip">${esc(b.kem_name)}</span>
+     <span class="chip">${esc(b.sig_name)}</span>
+     <span class="chip">${esc(b.symmetric)}</span>
+     <span class="chip">backend ${esc(b.backend)}</span>`;
+  if (!b.post_quantum){
+    $('#backendBanner').innerHTML =
+      `<div class="banner alarm"><b>Classical fallback active.</b> ${esc(b.note)}</div>`;
+  } else if (b.backend === 'pure-python'){
+    $('#backendBanner').innerHTML =
+      `<div class="banner caution"><b>Real NIST algorithms, reference speed.</b>
+       ${esc(b.note)} Key and signature <i>sizes</i> are exact and
+       implementation-independent; treat timings as an upper bound.</div>`;
+  }
+});
+
+/* ---------- finalisation threshold: derived, never entered ----------
+   Table III of the paper. Mirrored here only so the readout updates as you
+   change the size; the server derives it again and its answer is what counts. */
+const FT_TABLE = [
+  {lo:0,  hi:8,    ft:3,  band:'Small DAG',  paper:'10-100'},
+  {lo:9,  hi:24,   ft:5,  band:'Medium DAG', paper:'101-1,000'},
+  {lo:25, hi:null, ft:10, band:'Large DAG',  paper:'1,001+'},
+];
+function ftFor(nodes){
+  return FT_TABLE.find(r => nodes >= r.lo && (r.hi === null || nodes <= r.hi));
+}
+function syncFt(){
+  const gw = +$('#pGw').value || 0, sn = +$('#pSn').value || 0;
+  const nodes = gw * (1 + sn);
+  const row = ftFor(nodes);
+  $('#pFt').textContent = row.ft;
+  $('#pFtHint').innerHTML = `${nodes} node${nodes === 1 ? '' : 's'} · ${row.band}`;
+}
+$('#pGw').addEventListener('input', syncFt);
+$('#pSn').addEventListener('input', syncFt);
+syncFt();
+
+/* Registration mode. Off is the default and the correct setting at this
+   network size; the switch exists so the difference can be shown, not
+   because batching is recommended for 72 nodes. */
+function syncBatch(){
+  const on = $('#pBatch').checked;
+  const n  = (+$('#pGw').value||0) * (1 + (+$('#pSn').value||0));
+  $('#pBatchT').textContent = on ? 'batched' : 'per node';
+  $('#pBatchHint').textContent = on
+    ? `1 block for all ${n}`
+    : `1 block per identity`;
+}
+$('#pBatch').addEventListener('change', syncBatch);
+$('#pGw').addEventListener('input', syncBatch);
+$('#pSn').addEventListener('input', syncBatch);
+syncBatch();
+
+/* ---------- controls ---------- */
+$('#bBuild').onclick = () => run($('#bBuild'), async () => {
+  $('#buildInfo').textContent = 'establishing post-quantum sessions…';
+  const batch = $('#pBatch').checked;
+  const r = await api('/api/build', {
+    gateways:+$('#pGw').value, sensors_per_gateway:+$('#pSn').value,
+    difficulty:+$('#pD').value, t:+$('#pT').value,
+    batch_registration: batch});
+  if (r.error){ $('#buildInfo').textContent = ''; return; }
+  DEVICE_KEY = null;            // force the device cards to rebuild
+  $('#pFt').textContent = r.finalization_threshold;
+  $('#pFtHint').innerHTML = `${r.network_nodes} nodes · ${r.ft_band}`;
+  $('#buildInfo').textContent =
+    `${r.handshakes} sessions · median handshake ${fmt(r.median_handshake_ms)} ms `
+    + `· built in ${fmt(r.total_build_ms,0)} ms · `
+    + `${r.registration_blocks} BC_ID blocks`;
+  await refresh();
+  const ep = r.epoch;
+  toast(ep
+        ? `${ep.members} identities committed as epoch #${ep.epoch} in one block. `
+          + `${ep.blocks_avoided} blocks and ${ep.blocks_avoided} root anchors avoided.`
+        : `${r.handshakes} sessions established. ${r.network_nodes} nodes → `
+          + `${r.ft_band}, so FT = ${r.finalization_threshold}.`,
+        'info', ep ? 'Batched registration' : 'Network ready');
+});
+
+$('#bTraffic').onclick = () => run($('#bTraffic'), async () => {
+  const on = !STATE.auto_traffic;
+  const r = await api('/api/traffic', {on, rate:3});
+  if (!r.error) await refresh();
+});
+
+$('#bPublish').onclick = () => run($('#bPublish'), async () => {
+  const r = await api('/api/publish', {});
+  const list = r.results || [];
+  const ok = list.filter(x => x && x.ok).length;
+  const empty = list.length - ok;
+  if (ok) toast(`${ok} transaction${ok>1?'s':''} published.`, 'info', 'Published');
+  else if (empty) toast('No gateway had buffered readings. Send a reading first, then publish.',
+                        'info', 'Nothing to publish');
+  await refresh();
+});
+
+/* ---------- devices ---------- */
+function devStatus(s){
+  return `${s.kind} · handshake ${fmt(s.handshake_ms)} ms · ${s.sent} sent`
+       + (s.last ? ` · last ${s.last.value} ${s.unit}` : '');
+}
+function renderDevices(){
+  const el = $('#devices');
+  const key = (STATE.sensors||[]).map(s=>s.pd).join('|');
+  $('#devCount').textContent = `${(STATE.sensors||[]).length} devices`;
+
+  if (key !== DEVICE_KEY){
+    el.innerHTML = STATE.sensors.map(s => `
+      <div class="dev" data-pd="${esc(s.pd)}">
+        <div class="dev-h">
+          <code>${esc(s.pd)}</code>
+          <span class="dev-gw"><span class="dot ${s.session?'ok':'no'}"></span>${esc(s.gateway)}</span>
+        </div>
+        <div class="dev-meta js-status">${esc(devStatus(s))}</div>
+        <div class="dev-in">
+          <input type="number" step="any" inputmode="decimal"
+                 placeholder="value in ${esc(s.unit)}" id="in-${esc(s.pd)}"
+                 data-send="${esc(s.pd)}" aria-label="Reading for ${esc(s.pd)}">
+          <button class="btn sm secondary" data-sendbtn="${esc(s.pd)}">Send</button>
+        </div>
+      </div>`).join('');
+    DEVICE_KEY = key;
+    el.querySelectorAll('input[data-send]').forEach(i =>
+      i.addEventListener('keydown', e => {
+        if (e.key === 'Enter'){ e.preventDefault(); sendReading(i.dataset.send); }
+      }));
+    el.querySelectorAll('button[data-sendbtn]').forEach(b =>
+      b.addEventListener('click', () => sendReading(b.dataset.sendbtn)));
+    return;
+  }
+  STATE.sensors.forEach(s => {
+    const card = el.querySelector(`.dev[data-pd="${CSS.escape(s.pd)}"]`);
+    if (!card) return;
+    const st = card.querySelector('.js-status'), txt = devStatus(s);
+    if (st.textContent !== txt) st.textContent = txt;
+    card.querySelector('.dot').className = 'dot ' + (s.session ? 'ok' : 'no');
+  });
+}
+
+async function sendReading(pd){
+  const box = document.getElementById('in-' + pd);
+  if (!box) return;
+  const v = box.value.trim();
+  if (v === '' || Number.isNaN(parseFloat(v))){ box.focus(); return; }
+  box.value = ''; box.focus();
+  const r = await api('/api/reading', {sensor: pd, value: parseFloat(v)});
+  if (r && r.ok === false && r.error) toast(r.error);
+  await refresh();
+}
+
+/* ---------- stats ---------- */
+function renderStats(){
+  const s = STATE.stats; if (!s) return;
+  const tile = (v,l,cls='') =>
+    `<div class="stat ${cls}"><span class="v">${v}</span><span class="l">${l}</span></div>`;
+  $('#stats').innerHTML =
+      tile(s.total, 'transactions', 'acc')
+    + tile(s.finalized, 'finalised', 'ok')
+    + tile(s.pending, 'pending')
+    + tile(s.rejected, 'rejected', s.rejected ? 'bad' : '')
+    + tile(s.publish_retries, 'tip races')
+    + tile(s.avg_finalization_latency_s !== null
+        ? `${fmt(s.avg_finalization_latency_s,1)}<small>s</small>` : '—', 'avg finality')
+    + tile(s.FT, `threshold · ${s.ft_band||''}`)
+    + tile(s.difficulty_bits, 'popqw bits');
+}
+
+/* ---------- chart: 2 series, area + line, crosshair tooltip ---------- */
+let CHART = null;
+function renderChart(){
+  const d = (STATE.timeline || []).slice(-140);
+  const svg = $('#chart'), tip = $('#chartTip');
+  const W = svg.clientWidth || 600, H = 164;
+  if (d.length < 2){ svg.innerHTML = ''; CHART = null; return; }
+
+  const PL = 34, PR = 12, PT = 12, PB = 20;
+  const max = Math.max(4, ...d.map(p => p.total));
+  const nice = Math.ceil(max / 4) * 4;
+  const x = i => PL + (i / (d.length - 1)) * (W - PL - PR);
+  const y = v => H - PB - (v / nice) * (H - PT - PB);
+
+  const line = k => d.map((p,i) => `${i?'L':'M'}${x(i).toFixed(1)},${y(p[k]).toFixed(1)}`).join('');
+  const area = k => `${line(k)}L${x(d.length-1).toFixed(1)},${y(0)}L${x(0).toFixed(1)},${y(0)}Z`;
+
+  const grid = [0, nice/2, nice].map(v =>
+    `<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" stroke="var(--line)"
+       stroke-width="1"/>
+     <text x="${PL-7}" y="${y(v)+3.5}" font-size="9.5" fill="var(--ink-3)"
+       text-anchor="end" font-family="var(--mono)">${v}</text>`).join('');
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W);
+  svg.innerHTML = `
+    <defs>
+      <linearGradient id="gA" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--accent)" stop-opacity=".16"/>
+        <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="gO" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="var(--ok)" stop-opacity=".18"/>
+        <stop offset="100%" stop-color="var(--ok)" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    ${grid}
+    <path d="${area('total')}" fill="url(#gA)"/>
+    <path d="${area('finalized')}" fill="url(#gO)"/>
+    <path d="${line('total')}" fill="none" stroke="var(--accent)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${line('finalized')}" fill="none" stroke="var(--ok)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(d.length-1)}" cy="${y(d[d.length-1].total)}" r="3.5"
+      fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+    <circle cx="${x(d.length-1)}" cy="${y(d[d.length-1].finalized)}" r="3.5"
+      fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/>
+    <g id="cx" style="display:none">
+      <line y1="${PT}" y2="${H-PB}" stroke="var(--line-2)" stroke-width="1"
+        stroke-dasharray="3 3"/>
+      <circle r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+      <circle r="4" fill="var(--ok)" stroke="var(--surface)" stroke-width="2"/>
+    </g>
+    <rect x="${PL}" y="${PT}" width="${W-PL-PR}" height="${H-PT-PB}" fill="transparent"
+      id="hit" style="cursor:crosshair"/>`;
+
+  CHART = {d, x, y, PL, PR, W};
+  const hit = svg.querySelector('#hit'), cx = svg.querySelector('#cx');
+  hit.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (W / r.width);
+    let i = Math.round(((px - PL) / (W - PL - PR)) * (d.length - 1));
+    i = Math.max(0, Math.min(d.length - 1, i));
+    const p = d[i];
+    cx.style.display = '';
+    cx.querySelector('line').setAttribute('x1', x(i));
+    cx.querySelector('line').setAttribute('x2', x(i));
+    const cs = cx.querySelectorAll('circle');
+    cs[0].setAttribute('cx', x(i)); cs[0].setAttribute('cy', y(p.total));
+    cs[1].setAttribute('cx', x(i)); cs[1].setAttribute('cy', y(p.finalized));
+    tip.dataset.on = '1';
+    tip.style.left = (x(i) / W * 100) + '%';
+    tip.style.top = (y(Math.max(p.total, p.finalized)) - 12) + 'px';
+    tip.innerHTML = `<span class="t">t + ${fmt(p.t,1)} s</span>
+      <div class="r"><span>Created</span><span>${p.total}</span></div>
+      <div class="r"><span>Finalised</span><span>${p.finalized}</span></div>`;
+  });
+  hit.addEventListener('mouseleave', () => {
+    cx.style.display = 'none'; tip.dataset.on = '';
+  });
+}
+
+/* ---------- DAG ---------- */
+function renderDag(){
+  const svg = $('#dag'), tip = $('#dagTip');
+  if (DAG_HOVER) return;
+  const txs = (STATE.txs || []).slice(-34);
+  if (!txs.length){ svg.innerHTML = ''; return; }
+
+  const lanes = ['GENESIS', ...(STATE.gateways || []).map(g => g.gid)];
+  const laneY = {}, LH = 62, PAD = 92, CW = 46;
+  lanes.forEach((g,i) => laneY[g] = 42 + i*LH);
+  const pos = {};
+  txs.forEach((t,i) => pos[t.tx_id] = {x: PAD + i*CW, y: laneY[t.gateway_id] ?? 42});
+
+  const W = PAD + txs.length*CW + 34, H = 42 + lanes.length*LH + 26;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  $('#dagPill').textContent = `${txs.length} shown`;
+
+  let g1='', g2='', g3='';
+  lanes.forEach(g => {
+    g1 += `<line x1="${PAD-14}" y1="${laneY[g]}" x2="${W-18}" y2="${laneY[g]}"
+      stroke="var(--line)" stroke-width="1" stroke-dasharray="2 5"/>
+      <text x="10" y="${laneY[g]+4}" font-size="10.5" fill="var(--ink-3)"
+        font-family="var(--mono)">${esc(g==='GENESIS'?'genesis':g)}</text>`;
+  });
+  txs.forEach(t => {
+    const p = pos[t.tx_id];
+    (t.parents||[]).forEach(par => {
+      const q = pos[par]; if (!q) return;
+      const mx = (q.x + p.x)/2;
+      g2 += `<path d="M${q.x},${q.y} C${mx},${q.y} ${mx},${p.y} ${p.x},${p.y}"
+        fill="none" stroke="var(--line-2)" stroke-width="1.2" opacity=".75"/>`;
+    });
+  });
+  txs.forEach(t => {
+    const p = pos[t.tx_id];
+    const gen = t.gateway_id === 'GENESIS';
+    const fill = gen ? 'transparent' : (t.finalized ? 'var(--ok)' : 'var(--pending)');
+    const stroke = gen ? 'var(--ink-3)' : 'var(--surface)';
+    g3 += `<g class="node" data-tx="${esc(t.tx_id)}" style="cursor:pointer">
+      <circle cx="${p.x}" cy="${p.y}" r="14" fill="transparent"/>
+      <circle cx="${p.x}" cy="${p.y}" r="8.5" fill="${fill}" stroke="${stroke}"
+        stroke-width="2"/>
+      ${(gen||t.finalized)?'':`<text x="${p.x}" y="${p.y+3.5}" font-size="9"
+        fill="#fff" text-anchor="middle" font-weight="700"
+        font-family="var(--mono)">${t.weight}</text>`}
+      <text x="${p.x}" y="${p.y+23}" font-size="8" fill="var(--ink-3)"
+        text-anchor="middle" font-family="var(--mono)">${
+        esc(t.tx_id.replace('TX-0','').replace('GEN-','g'))}</text></g>`;
+  });
+  svg.innerHTML = g1 + g2 + g3;
+
+  const byId = Object.fromEntries(txs.map(t => [t.tx_id, t]));
+  svg.querySelectorAll('.node').forEach(n => {
+    n.addEventListener('mouseenter', e => {
+      const t = byId[n.dataset.tx]; if (!t) return;
+      const p = pos[t.tx_id], r = svg.getBoundingClientRect();
+      const wrap = svg.closest('.chartwrap').getBoundingClientRect();
+      tip.dataset.on = '1';
+      tip.style.left = (r.left - wrap.left + p.x * (r.width / W)) + 'px';
+      tip.style.top  = (r.top - wrap.top + p.y * (r.height / H) - 14) + 'px';
+      tip.innerHTML = `<span class="t">${esc(t.tx_id)} · ${esc(t.gateway_id)}</span>
+        <div class="r"><span>Approvals</span><span>${t.weight} / ${STATE.stats.FT}</span></div>
+        <div class="r"><span>Direct children</span><span>${t.references}</span></div>
+        <div class="r"><span>Status</span><span>${t.finalized?'finalised':'pending'}</span></div>
+        ${t.finalized?`<div class="r"><span>Certificate</span><span>${t.cert_bytes} B</span></div>`:''}
+        <div class="r"><span>Ciphertext</span><span>${t.ciphertext_bytes} B</span></div>
+        <div class="r"><span>PoPQW nonce</span><span>${t.popqw_nonce}</span></div>
+        ${t.payload_preview?`<div style="margin-top:5px;font-family:var(--mono);
+          font-size:11px;color:var(--ink-2)">${esc(t.payload_preview)}</div>`:''}`;
+    });
+    n.addEventListener('mouseleave', () => { tip.dataset.on = ''; });
+  });
+}
+$('#dag').addEventListener('mouseenter', () => { DAG_HOVER = true; });
+$('#dag').addEventListener('mouseleave', () => { DAG_HOVER = false; });
+
+/* ---------- events, bcid, notes ---------- */
+function renderEvents(){
+  $('#events').innerHTML = (STATE.events||[]).map(e =>
+    `<div class="ev ${esc(e.kind)}"><time>${new Date(e.at*1000).toLocaleTimeString()}</time>${
+      esc(e.message)}</div>`).join('')
+    || '<p class="hint">No events yet.</p>';
+}
+function renderBcid(){
+  const rows = STATE.registration_chain || [];
+  $('#bcid').innerHTML =
+    '<thead><tr><th class="n">#</th><th>Node</th><th>Role</th><th>Prev hash</th>'
+    + '<th>Hash</th></tr></thead><tbody>'
+    + rows.map(b => `<tr><td class="n">${b.index}</td><td class="m">${esc(b.pd)}</td>
+        <td>${esc(b.role)}</td><td class="m">${esc(b.prev)}…</td>
+        <td class="m">${esc(b.hash)}…</td></tr>`).join('')
+    + '</tbody>';
+}
+function renderNotes(){
+  $('#notes').innerHTML = (STATE.design_notes||[]).map(n =>
+    `<div class="q" style="border-color:var(--caution)"><h3>${esc(n.topic)}</h3>
+     <p style="color:var(--ink-2)">${esc(n.detail)}</p></div>`).join('')
+    || '<p class="hint">Build a network to load the notes.</p>';
+}
+function renderSecurity(checks){
+  if (!checks || !checks.length) return;
+  const pass = checks.filter(c => c.pass).length;
+  $('#secOut').innerHTML = `<div class="tw"><table>
+    <thead><tr><th>Adversarial input</th><th>Expected behaviour</th>
+      <th class="n">Outcome</th></tr></thead><tbody>` +
+    checks.map(c => `<tr><td>${esc(c.check)}</td>
+      <td style="color:var(--ink-3)">${esc(c.expectation)}</td>
+      <td class="n"><span class="pill ${c.pass?'ok':'bad'}">${esc(c.result)}</span></td></tr>`)
+      .join('') + `</tbody></table></div>
+    <p class="hint" style="margin-top:10px">${pass} of ${checks.length} rejected as designed.</p>`;
+}
+
+/* ---------- experiments ---------- */
+$('#bSec').onclick = () => run($('#bSec'), async () => {
+  const r = await api('/api/security', {});
+  if (r.checks) renderSecurity(r.checks);
+});
+
+function poll(job){
+  return new Promise(resolve => {
+    const id = setInterval(async () => {
+      const j = await api('/api/job/' + job);
+      if (j.status === 'running') return;
+      clearInterval(id);
+      resolve(j);
+    }, 700);
+  });
+}
+
+$('#bBench').onclick = () => run($('#bBench'), async () => {
+  await api('/api/benchmark', {repeats:15});
+  const j = await poll('benchmark');
+  if (j.status === 'done'){ BENCH = j.result; renderBench(j.result); }
+  else toast((j.result && j.result.error) || 'Benchmark failed.');
+});
+
+function renderBench(r){
+  const s = r.summary;
+  $('#benchOut').innerHTML = `<div class="tw"><table>
+    <thead><tr><th>Algorithm</th><th class="n">Keygen</th><th class="n">Op</th>
+      <th class="n">Verify/decap</th><th class="n">Key / wire</th></tr></thead><tbody>` +
+    r.rows.map(x => `<tr>
+      <td><span class="m">${esc(x.algorithm)}</span>
+        ${x.post_quantum?'<span class="pill ok">PQ</span>':''}
+        <div style="color:var(--ink-3);font-size:11px">${esc(x.family)}</div></td>
+      <td class="n">${fmt(x.keygen_ms,3)}</td><td class="n">${fmt(x.op1_ms,3)}</td>
+      <td class="n">${fmt(x.op2_ms,3)}</td>
+      <td class="n">${x.public_key_bytes} / ${x.wire_bytes}</td></tr>`).join('')
+    + `</tbody></table></div>
+    <p class="hint" style="margin-top:8px">Milliseconds, median of ${r.repeats} runs.</p>
+    <div class="kv" style="margin-top:10px">handshake bytes, post-quantum : <b>${s.pq_handshake_wire_bytes}</b>
+handshake bytes, classical    : ${s.classical_handshake_wire_bytes}
+overhead factor               : <b>${s.wire_overhead_factor}×</b>  (one time, per sensor)
+sensor compute, post-quantum  : ${fmt(s.pq_sensor_side_ms,3)} ms
+sensor compute, classical     : ${fmt(s.classical_sensor_side_ms,3)} ms</div>`;
+}
+
+$('#bExp').onclick = () => run($('#bExp'), async () => {
+  await api('/api/experiment', {gateways:4, tx_per_gateway:6,
+    difficulty:+$('#pD').value, t:+$('#pT').value});
+  const j = await poll('experiment');
+  if (j.status === 'done'){ EXP = j.result; renderExp(j.result); }
+  else toast((j.result && j.result.error) || 'Experiment failed.');
+});
+
+function renderExp(r){
+  const mx = Math.max(r.dag.entries_per_s, r.linear.entries_per_s) || 1;
+  const w = v => (v / mx * 100).toFixed(1) + '%';
+  $('#expOut').innerHTML = `
+    <div class="bar-row"><span>DAG</span>
+      <span><span class="bar" style="width:${w(r.dag.entries_per_s)}"></span></span>
+      <span class="n">${fmt(r.dag.entries_per_s)} /s</span></div>
+    <div class="bar-row"><span>Linear chain</span>
+      <span><span class="bar alt" style="width:${w(r.linear.entries_per_s)}"></span></span>
+      <span class="n">${fmt(r.linear.entries_per_s)} /s</span></div>
+    <div class="kv" style="margin-top:12px">entries per arm      : ${r.parameters.total_entries}
+PoPQW difficulty     : ${r.parameters.popqw_difficulty_bits} bits
+signatures per entry : ${r.parameters.threshold_t} × ML-DSA-44
+DAG wall clock       : ${fmt(r.dag.wall_ms,0)} ms  (${r.parameters.worker_processes} processes)
+linear wall clock    : ${fmt(r.linear.wall_ms,0)} ms  (sequential)
+measured speed-up    : <b>${r.speedup}×</b>
+CPU on PoPQW         : ${fmt(r.dag.cpu_ms_popqw,0)} ms
+CPU on signatures    : <b>${fmt(r.dag.cpu_ms_sign,0)} ms</b>  ← dominant</div>
+    <div class="banner caution" style="margin-top:12px">${esc(r.ceiling_note)}</div>`;
+}
+
+/* ---------- PoC answers ---------- */
+function renderPoc(){
+  const s = STATE.stats, p = STATE.params, b = BENCH && BENCH.summary;
+  const q = (n,title,body) => `<div class="q"><h3>${n}. ${title}</h3>${body}</div>`;
+  const todo = '<p class="hint">Run the corresponding experiment on the Evidence tab.</p>';
+
+  $('#pocOut').innerHTML =
+    q(1,'What risky assumption was tested?', `
+      <p>That NIST post-quantum cryptography is cheap enough for constrained
+      vehicular sensor nodes, <i>and</i> that a DAG ledger absorbs that cost
+      better than the linear chain it replaces. If either half fails, the
+      architecture in the proposal does not stand.</p>`) +
+
+    q(2,'What input and setup was used?', s ? `
+      <div class="kv">crypto backend      : ${esc(BACKEND.backend)} — ${esc(BACKEND.kem_name)} + ${esc(BACKEND.sig_name)}
+symmetric layer     : ${esc(BACKEND.symmetric)}
+network             : ${p.gateways} gateways, ${p.sensors_total} sensors, all on BC_ID
+consensus settings  : FT = ${p.finalization_threshold} (derived: ${p.network_nodes} nodes = ${p.ft_band}, Table III ${p.ft_paper_range})
+                      PoPQW = ${p.popqw_difficulty_bits} bits, t = ${p.threshold_t}
+sensor input        : values typed into the dashboard and generated traffic
+setup cost          : ${STATE.setup.handshakes} handshakes, median ${fmt(STATE.setup.median_handshake_ms)} ms</div>` : todo) +
+
+    q(3,'What result was obtained?', `
+      ${s ? `<div class="kv">pipeline             : ${s.total} published, ${s.finalized} finalised, ${s.rejected} rejected
+mean time to finality: ${fmt(s.avg_finalization_latency_s)} s at FT = ${s.FT}</div>` : todo}
+      ${b ? `<div class="kv" style="margin-top:9px">PQ handshake on the wire : <b>${b.pq_handshake_wire_bytes} B</b> vs ${b.classical_handshake_wire_bytes} B classical → <b>${b.wire_overhead_factor}×</b>
+sensor-side compute      : ${fmt(b.pq_sensor_side_ms,3)} ms per handshake</div>` : ''}
+      ${EXP ? `<div class="kv" style="margin-top:9px">DAG ${fmt(EXP.dag.entries_per_s)}/s vs linear ${fmt(EXP.linear.entries_per_s)}/s → <b>${EXP.speedup}×</b> on ${EXP.parameters.cpu_cores} cores
+signature cost ${fmt(EXP.dag.cpu_ms_sign,0)} ms vs PoPQW ${fmt(EXP.dag.cpu_ms_popqw,0)} ms</div>` : ''}
+      ${STATE.security_checks && STATE.security_checks.length ? `<div class="kv" style="margin-top:9px">adversarial checks   : ${STATE.security_checks.filter(c=>c.pass).length}/${STATE.security_checks.length} rejected as designed</div>` : ''}`) +
+
+    q(4,'What was learned or disproved?', `
+      <p><b>Confirmed.</b> The post-quantum pipeline runs end to end on ordinary
+      hardware. The handshake is one-time, so per-reading cost is unchanged.</p>
+      ${b ? `<p><b>Reframed.</b> The binding constraint is not CPU, it is
+      <i>bytes</i>: ${b.wire_overhead_factor}× more handshake traffic. On a
+      congested vehicular radio link that, not computation, is what will hurt.</p>` : ''}
+      ${EXP ? `<p><b>Partly disproved.</b> The DAG advantage is real but bounded:
+      ${EXP.speedup}× on ${EXP.parameters.cpu_cores} cores, not the order of
+      magnitude a single-machine simulation can suggest. We also found the
+      <i>threshold signature</i>, not proof-of-work, dominates cost
+      (${fmt(EXP.dag.cpu_ms_sign,0)} ms vs ${fmt(EXP.dag.cpu_ms_popqw,0)} ms) —
+      the opposite of what we assumed.</p>` : ''}
+      <p><b>Found by building it.</b> Concurrent gateways race for the same tips;
+      a transaction can be finalised while another gateway is still mining
+      against it.${s && s.publish_retries
+        ? ` We hit this ${s.publish_retries} time(s) in this run.`
+        : ' Our retry logic absorbed it here, but the paper does not specify the case.'}</p>`) +
+
+    q(5,'How will this change the design or plan?', `
+      <ul>
+        <li><b>Budget the radio link, not the CPU.</b> Add handshake-byte cost to
+        the evaluation plan; investigate session resumption so the
+        ${b ? b.wire_overhead_factor+'×' : 'large'} handshake is paid rarely.</li>
+        <li><b>Attack the signature cost first.</b> Test batched or aggregate
+        finalisation certificates rather than tuning PoPQW difficulty.</li>
+        <li><b>Test parallelism honestly.</b> A single-process simulation cannot
+        evidence the scalability claim; the plan needs a multi-machine testbed.</li>
+        <li><b>Specify tip-race handling</b> as part of the design, not an
+        implementation detail.</li>
+        <li><b>Raise PoPQW difficulty for Grover.</b> A SHA-256 puzzle is only
+        quadratically hard against a quantum miner.</li>
+      </ul>`);
+}
+
+/* ==========================================================================
+   Anomaly detection - SIMULATED.
+
+   Nothing here trains or runs a model. It exists so the planned RL component
+   can be shown in the interface before it is built. Two rules keep the mock
+   honest rather than merely pretty:
+
+     1. Counts come first, metrics are derived. Per-attack confusion counts are
+        drawn at random, summed into the overall matrix, and precision, recall,
+        F1 and accuracy are computed from those integers. The matrix and the
+        headline scores can therefore never contradict each other, which is the
+        first thing anyone checking the arithmetic would look for.
+     2. Every panel is tagged "simulated" and the tab carries a "sim" badge, so
+        no screenshot of this section can be mistaken for a measurement.
+   ========================================================================== */
+let AI = null;
+
+const ATTACKS = {
+  fdi:    {label:'False data injection', share:.34},
+  spoof:  {label:'Node spoofing',        share:.26},
+  replay: {label:'Replay',               share:.22},
+  dos:    {label:'Denial of service',    share:.18},
+};
+const rnd = (a,b) => a + Math.random()*(b-a);
+
+function simulateRun(){
+  const algo = $('#aAlgo').value;
+  const pick = $('#aAttack').value;
+  const episodes = Math.max(50, Math.min(2000, +$('#aEp').value || 300));
+  const ratio = Math.max(2, Math.min(45, +$('#aRate').value || 15)) / 100;
+  const N = 2400;
+
+  // Different agents are shown with slightly different competence bands, so the
+  // selector visibly does something.
+  const band = {DQN:[.86,.95], PPO:[.89,.97], A2C:[.84,.93]}[algo];
+
+  const classes = pick === 'all' ? Object.keys(ATTACKS) : [pick];
+  const totalPos = Math.round(N * ratio);
+  const weights = classes.map(k => ATTACKS[k].share);
+  const wsum = weights.reduce((a,b)=>a+b,0);
+
+  const rows = [];
+  let TP=0, FN=0, FP=0;
+  classes.forEach((k,i) => {
+    const pos = Math.max(1, i === classes.length-1
+      ? totalPos - rows.reduce((a,r)=>a+r.support,0)
+      : Math.round(totalPos * weights[i]/wsum));
+    const recall = rnd(band[0], band[1]);
+    const precision = rnd(band[0], band[1]);
+    const tp = Math.max(1, Math.round(recall*pos));
+    const fn = Math.max(0, pos - tp);
+    const fp = Math.max(0, Math.round(tp/precision - tp));
+    rows.push({key:k, label:ATTACKS[k].label, support:pos, tp, fn, fp});
+    TP += tp; FN += fn; FP += fp;
+  });
+  const TN = N - TP - FN - FP;
+
+  // Derived strictly from the integers above.
+  const P = TP/(TP+FP), R = TP/(TP+FN);
+  const F1 = 2*P*R/(P+R), ACC = (TP+TN)/N;
+
+  // A learning curve that lands on the F1 actually reported.
+  const pts = 46;
+  const curve = Array.from({length:pts}, (_,i) => {
+    const x = i/(pts-1);
+    const base = F1 * (1 - Math.exp(-3.4*x)) * 0.995;
+    const noise = (Math.random()-0.5) * 0.055 * (1-x*0.8);
+    return {ep: Math.round(x*episodes), f1: Math.max(0.05, Math.min(0.995, base+noise))};
+  });
+  curve[curve.length-1].f1 = F1;
+
+  // A plausible stream of recent decisions.
+  const sensors = (STATE.sensors||[]).map(s=>({pd:s.pd, kind:s.kind, unit:s.unit,
+    lo:s.last?s.last.value*0.85:20, hi:s.last?s.last.value*1.15:120}));
+  const pool = sensors.length ? sensors : [{pd:'SN-00-00',kind:'speed',unit:'km/h',lo:20,hi:120}];
+  const stream = Array.from({length:24}, () => {
+    const s = pool[Math.floor(Math.random()*pool.length)];
+    const hit = Math.random() < ratio;
+    const v = hit ? rnd(s.hi*1.4, s.hi*2.6) : rnd(s.lo, s.hi);
+    return {pd:s.pd, kind:s.kind, unit:s.unit, value:v,
+            hit, conf: hit ? rnd(.82,.99) : rnd(.74,.98)};
+  });
+
+  return {algo, pick, episodes, ratio, N, TP, FN, FP, TN, P, R, F1, ACC,
+          rows, curve, stream, at:new Date()};
+}
+
+function renderAI(a){
+  const pc = v => (v*100).toFixed(1) + '%';
+  $('#aiInfo').textContent =
+    `${a.algo} · ${a.episodes} episodes · ${a.N.toLocaleString()} samples · `
+    + `${(a.ratio*100).toFixed(0)}% anomalous · run at ${a.at.toLocaleTimeString()}`;
+
+  const m = (v,l) => `<div class="metric"><span class="mv">${v.toFixed(3)}</span>
+    <span class="ml">${l}</span><div class="mb"><i style="width:${(v*100).toFixed(1)}%"></i></div></div>`;
+  $('#aiMetrics').innerHTML = m(a.P,'precision') + m(a.R,'recall')
+                            + m(a.F1,'f1 score') + m(a.ACC,'accuracy');
+  $('#aiDerived').innerHTML =
+    `Computed from the matrix: precision = ${a.TP}/(${a.TP}+${a.FP}), `
+    + `recall = ${a.TP}/(${a.TP}+${a.FN}), F1 = harmonic mean. `
+    + `<b>Simulated values &mdash; regenerated on every run.</b>`;
+
+  const cell = (n, total, label, cls) =>
+    `<div class="cell ${cls}"><span class="cn">${n.toLocaleString()}</span>
+     <span class="cl">${label} · ${pc(n/total)}</span></div>`;
+  $('#aiCM').innerHTML = `<div class="cm">
+    <div class="hd"></div><div class="hd">Flagged anomalous</div><div class="hd">Passed as normal</div>
+    <div class="rh">Actually&nbsp;anomalous</div>
+    ${cell(a.TP, a.N, 'true positive', 'good')}
+    ${cell(a.FN, a.N, 'false negative', 'err')}
+    <div class="rh">Actually&nbsp;normal</div>
+    ${cell(a.FP, a.N, 'false positive', 'err')}
+    ${cell(a.TN, a.N, 'true negative', 'good')}
+  </div>`;
+
+  $('#aiByClass').innerHTML = `<div class="tw"><table>
+    <thead><tr><th>Attack class</th><th class="n">Support</th><th class="n">Precision</th>
+      <th class="n">Recall</th><th class="n">F1</th></tr></thead><tbody>` +
+    a.rows.map(r => {
+      const p = r.tp/(r.tp+r.fp), rc = r.tp/(r.tp+r.fn);
+      return `<tr><td>${esc(r.label)}</td><td class="n">${r.support}</td>
+        <td class="n">${p.toFixed(3)}</td><td class="n">${rc.toFixed(3)}</td>
+        <td class="n">${(2*p*rc/(p+rc)).toFixed(3)}</td></tr>`;
+    }).join('') + `</tbody></table></div>`;
+
+  $('#aiStream').innerHTML = a.stream.map(s =>
+    `<div class="srow ${s.hit?'hit':'norm'}">
+       <span>${esc(s.pd)}</span>
+       <span class="v">${esc(s.kind)} ${s.value.toFixed(1)} ${esc(s.unit)}</span>
+       <span class="verdict">${s.hit?'ANOMALY':'normal'}</span>
+       <span class="conf">${(s.conf*100).toFixed(0)}%</span></div>`).join('');
+
+  renderAIChart(a);
+}
+
+function renderAIChart(a){
+  const svg = $('#aiChart'), tip = $('#aiTip'), d = a.curve;
+  const W = svg.clientWidth || 520, H = 150;
+  if (!W || d.length < 2) return;
+  const PL = 36, PR = 12, PT = 12, PB = 22;
+  const x = i => PL + (i/(d.length-1))*(W-PL-PR);
+  const y = v => H - PB - v*(H-PT-PB);
+  const line = d.map((p,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(p.f1).toFixed(1)}`).join('');
+  const grid = [0,0.5,1].map(v =>
+    `<line x1="${PL}" y1="${y(v)}" x2="${W-PR}" y2="${y(v)}" stroke="var(--line)"/>
+     <text x="${PL-7}" y="${y(v)+3.5}" font-size="9.5" fill="var(--ink-3)"
+       text-anchor="end" font-family="var(--mono)">${v.toFixed(1)}</text>`).join('');
+
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('width', W);
+  svg.innerHTML = `
+    <defs><linearGradient id="gAI" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--accent)" stop-opacity=".16"/>
+      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+    </linearGradient></defs>
+    ${grid}
+    <path d="${line}L${x(d.length-1)},${y(0)}L${x(0)},${y(0)}Z" fill="url(#gAI)"/>
+    <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${x(d.length-1)}" cy="${y(d[d.length-1].f1)}" r="3.5"
+      fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+    <text x="${PL}" y="${H-6}" font-size="9.5" fill="var(--ink-3)"
+      font-family="var(--mono)">episode 0</text>
+    <text x="${W-PR}" y="${H-6}" font-size="9.5" fill="var(--ink-3)"
+      text-anchor="end" font-family="var(--mono)">${a.episodes}</text>
+    <g id="aicx" style="display:none">
+      <line y1="${PT}" y2="${H-PB}" stroke="var(--line-2)" stroke-dasharray="3 3"/>
+      <circle r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>
+    </g>
+    <rect x="${PL}" y="${PT}" width="${W-PL-PR}" height="${H-PT-PB}"
+      fill="transparent" id="aihit" style="cursor:crosshair"/>`;
+
+  const hit = svg.querySelector('#aihit'), cx = svg.querySelector('#aicx');
+  hit.addEventListener('mousemove', e => {
+    const r = svg.getBoundingClientRect();
+    const px = (e.clientX - r.left) * (W/r.width);
+    let i = Math.round(((px-PL)/(W-PL-PR))*(d.length-1));
+    i = Math.max(0, Math.min(d.length-1, i));
+    cx.style.display = '';
+    cx.querySelector('line').setAttribute('x1', x(i));
+    cx.querySelector('line').setAttribute('x2', x(i));
+    const c = cx.querySelector('circle');
+    c.setAttribute('cx', x(i)); c.setAttribute('cy', y(d[i].f1));
+    tip.dataset.on = '1';
+    tip.style.left = (x(i)/W*100) + '%';
+    tip.style.top = (y(d[i].f1) - 12) + 'px';
+    tip.innerHTML = `<span class="t">episode ${d[i].ep}</span>
+      <div class="r"><span>Validation F1</span><span>${d[i].f1.toFixed(3)}</span></div>`;
+  });
+  hit.addEventListener('mouseleave', () => {
+    cx.style.display = 'none'; tip.dataset.on = '';
+  });
+}
+
+$('#bAI').onclick = () => run($('#bAI'), async () => {
+  await new Promise(r => setTimeout(r, 620));   // let the spinner read as work
+  AI = simulateRun();
+  renderAI(AI);
+  toast('Simulated scenario complete. These figures are generated, not measured.',
+        'info', 'Simulation');
+});
+
+/* ---------- refresh loop ---------- */
+async function refresh(){
+  const s = await api('/api/state');
+  if (!s || s.error) return;
+  STATE = s;
+  const built = !!STATE.built;
+  $('#emptyState').classList.toggle('hidden', built);
+  $('#liveGrid').classList.toggle('hidden', !built);
+  gate();
+  if (!built) return;
+
+  const tb = $('#bTraffic');
+  tb.querySelector('span:last-child').textContent =
+    STATE.auto_traffic ? 'Stop sensor traffic' : 'Start sensor traffic';
+  tb.classList.toggle('danger', !!STATE.auto_traffic);
+  tb.classList.toggle('secondary', !STATE.auto_traffic);
+  $('#tickPill').textContent = STATE.auto_traffic ? 'traffic running' : 'idle';
+
+  renderDevices(); renderStats(); renderChart(); renderDag();
+  renderEvents(); renderBcid(); renderNotes();
+  renderSecurity(STATE.security_checks);
+}
+
+let resizeT;
+addEventListener('resize', () => {
+  clearTimeout(resizeT);
+  resizeT = setTimeout(() => {
+    if (STATE.built) renderChart();
+    if (AI) renderAIChart(AI);
+  }, 150);
+});
+
+refresh();
+setInterval(refresh, 1200);
+</script>
+</body>
+</html>
