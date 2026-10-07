@@ -1,0 +1,120 @@
+{
+  "rows": [
+    {
+      "n": 72,
+      "sorted": {
+        "commit_ms": 0.084,
+        "prove_ms": 0.077,
+        "proof_bytes": 231,
+        "unbatched_ms": 2.544
+      },
+      "smt": {
+        "commit_ms": 26.036,
+        "prove_ms": 0.082,
+        "proof_bytes": 256,
+        "unbatched_ms": 25.605
+      },
+      "anchor_bytes_individual": 522720,
+      "anchor_bytes_batched": 7260
+    },
+    {
+      "n": 150,
+      "sorted": {
+        "commit_ms": 0.169,
+        "prove_ms": 0.152,
+        "proof_bytes": 264,
+        "unbatched_ms": 10.607
+      },
+      "smt": {
+        "commit_ms": 52.753,
+        "prove_ms": 0.105,
+        "proof_bytes": 288,
+        "unbatched_ms": 54.086
+      },
+      "anchor_bytes_individual": 1089000,
+      "anchor_bytes_batched": 7260
+    },
+    {
+      "n": 300,
+      "sorted": {
+        "commit_ms": 0.321,
+        "prove_ms": 0.236,
+        "proof_bytes": 297,
+        "unbatched_ms": 36.257
+      },
+      "smt": {
+        "commit_ms": 103.538,
+        "prove_ms": 0.084,
+        "proof_bytes": 288,
+        "unbatched_ms": 102.517
+      },
+      "anchor_bytes_individual": 2178000,
+      "anchor_bytes_batched": 7260
+    },
+    {
+      "n": 600,
+      "sorted": {
+        "commit_ms": 0.556,
+        "prove_ms": 0.469,
+        "proof_bytes": 330,
+        "unbatched_ms": 159.313
+      },
+      "smt": {
+        "commit_ms": 223.924,
+        "prove_ms": 0.092,
+        "proof_bytes": 320,
+        "unbatched_ms": 207.706
+      },
+      "anchor_bytes_individual": 4356000,
+      "anchor_bytes_batched": 7260
+    },
+    {
+      "n": 1200,
+      "sorted": {
+        "commit_ms": 1.097,
+        "prove_ms": 0.885,
+        "proof_bytes": 363,
+        "unbatched_ms": 616.488
+      },
+      "smt": {
+        "commit_ms": 455.939,
+        "prove_ms": 0.1,
+        "proof_bytes": 416,
+        "unbatched_ms": 445.054
+      },
+      "anchor_bytes_individual": 8712000,
+      "anchor_bytes_batched": 7260
+    },
+    {
+      "n": 2400,
+      "sorted": {
+        "commit_ms": 1.886,
+        "prove_ms": 1.614,
+        "proof_bytes": 396,
+        "unbatched_ms": 2478.157
+      },
+      "smt": {
+        "commit_ms": 920.963,
+        "prove_ms": 0.1,
+        "proof_bytes": 416,
+        "unbatched_ms": 868.638
+      },
+      "anchor_bytes_individual": 17424000,
+      "anchor_bytes_batched": 7260
+    }
+  ],
+  "cert_bytes": 7260,
+  "crossover_n": 1200,
+  "backend": {
+    "backend": "pure-python",
+    "note": "kyber-py / dilithium-py pure-Python reference implementations. Algorithms and key sizes are the real NIST standards; raw speed is roughly 1-2 orders of magnitude slower than optimised C.",
+    "post_quantum": true,
+    "kem_name": "ML-KEM-768 (FIPS 203)",
+    "sig_name": "ML-DSA-44 (FIPS 204)",
+    "symmetric": "AES-256-GCM",
+    "kem_public_bytes": 1184,
+    "kem_ciphertext_bytes": 1088,
+    "sig_public_bytes": 1312,
+    "signature_bytes": 2420
+  }
+}

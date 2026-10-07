@@ -1,0 +1,413 @@
+{
+  "structures": [
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 5,
+      "build_ms": 0.01,
+      "proof_gen_ms": 0.006,
+      "verify_ms": 0.0037,
+      "proof_bytes": 99
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 5,
+      "build_ms": 0.003,
+      "proof_gen_ms": 0.002,
+      "verify_ms": 0.0022,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Authenticated skip list",
+      "is_tree": false,
+      "n": 5,
+      "build_ms": 0.019,
+      "proof_gen_ms": 0.014,
+      "verify_ms": 0.0073,
+      "proof_bytes": 448
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 5,
+      "build_ms": 174.823,
+      "proof_gen_ms": 0.005,
+      "verify_ms": 5.4802,
+      "proof_bytes": 2420
+    },
+    {
+      "structure": "XOR multiset digest",
+      "is_tree": false,
+      "n": 5,
+      "build_ms": 0.023,
+      "proof_gen_ms": 0.004,
+      "verify_ms": 0.0268,
+      "proof_bytes": 128
+    },
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 10,
+      "build_ms": 0.014,
+      "proof_gen_ms": 0.011,
+      "verify_ms": 0.0048,
+      "proof_bytes": 132
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 10,
+      "build_ms": 0.009,
+      "proof_gen_ms": 0.003,
+      "verify_ms": 0.0038,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Authenticated skip list",
+      "is_tree": false,
+      "n": 10,
+      "build_ms": 0.029,
+      "proof_gen_ms": 0.042,
+      "verify_ms": 0.0124,
+      "proof_bytes": 992
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 10,
+      "build_ms": 266.487,
+      "proof_gen_ms": 0.005,
+      "verify_ms": 5.2654,
+      "proof_bytes": 2420
+    },
+    {
+      "structure": "XOR multiset digest",
+      "is_tree": false,
+      "n": 10,
+      "build_ms": 0.029,
+      "proof_gen_ms": 0.008,
+      "verify_ms": 0.0247,
+      "proof_bytes": 288
+    },
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 25,
+      "build_ms": 0.025,
+      "proof_gen_ms": 0.023,
+      "verify_ms": 0.0047,
+      "proof_bytes": 165
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 25,
+      "build_ms": 0.005,
+      "proof_gen_ms": 0.009,
+      "verify_ms": 0.0045,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Authenticated skip list",
+      "is_tree": false,
+      "n": 25,
+      "build_ms": 0.062,
+      "proof_gen_ms": 0.21,
+      "verify_ms": 0.0239,
+      "proof_bytes": 2240
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 25,
+      "build_ms": 689.503,
+      "proof_gen_ms": 0.009,
+      "verify_ms": 5.3661,
+      "proof_bytes": 2420
+    },
+    {
+      "structure": "XOR multiset digest",
+      "is_tree": false,
+      "n": 25,
+      "build_ms": 0.062,
+      "proof_gen_ms": 0.024,
+      "verify_ms": 0.0562,
+      "proof_bytes": 768
+    },
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 50,
+      "build_ms": 0.053,
+      "proof_gen_ms": 0.059,
+      "verify_ms": 0.0056,
+      "proof_bytes": 198
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 50,
+      "build_ms": 0.009,
+      "proof_gen_ms": 0.036,
+      "verify_ms": 0.0098,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Authenticated skip list",
+      "is_tree": false,
+      "n": 50,
+      "build_ms": 0.12,
+      "proof_gen_ms": 1.025,
+      "verify_ms": 0.0528,
+      "proof_bytes": 4672
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 50,
+      "build_ms": 1450.433,
+      "proof_gen_ms": 0.023,
+      "verify_ms": 5.8595,
+      "proof_bytes": 2420
+    },
+    {
+      "structure": "XOR multiset digest",
+      "is_tree": false,
+      "n": 50,
+      "build_ms": 0.137,
+      "proof_gen_ms": 0.065,
+      "verify_ms": 0.1302,
+      "proof_bytes": 1568
+    },
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 72,
+      "build_ms": 0.074,
+      "proof_gen_ms": 0.095,
+      "verify_ms": 0.0066,
+      "proof_bytes": 231
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 72,
+      "build_ms": 0.013,
+      "proof_gen_ms": 0.05,
+      "verify_ms": 0.0096,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Authenticated skip list",
+      "is_tree": false,
+      "n": 72,
+      "build_ms": 0.186,
+      "proof_gen_ms": 1.808,
+      "verify_ms": 0.069,
+      "proof_bytes": 6144
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 72,
+      "build_ms": 1874.559,
+      "proof_gen_ms": 0.021,
+      "verify_ms": 5.2501,
+      "proof_bytes": 2420
+    },
+    {
+      "structure": "XOR multiset digest",
+      "is_tree": false,
+      "n": 72,
+      "build_ms": 0.184,
+      "proof_gen_ms": 0.12,
+      "verify_ms": 0.1699,
+      "proof_bytes": 2272
+    },
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 100,
+      "build_ms": 0.083,
+      "proof_gen_ms": 0.132,
+      "verify_ms": 0.0064,
+      "proof_bytes": 231
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 100,
+      "build_ms": 0.016,
+      "proof_gen_ms": 0.082,
+      "verify_ms": 0.0115,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Authenticated skip list",
+      "is_tree": false,
+      "n": 100,
+      "build_ms": 0.246,
+      "proof_gen_ms": 3.309,
+      "verify_ms": 0.0933,
+      "proof_bytes": 8000
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 100,
+      "build_ms": 2532.745,
+      "proof_gen_ms": 0.028,
+      "verify_ms": 5.2204,
+      "proof_bytes": 2420
+    },
+    {
+      "structure": "XOR multiset digest",
+      "is_tree": false,
+      "n": 100,
+      "build_ms": 0.243,
+      "proof_gen_ms": 0.225,
+      "verify_ms": 0.2324,
+      "proof_bytes": 3168
+    },
+    {
+      "structure": "Merkle tree",
+      "is_tree": true,
+      "n": 250,
+      "build_ms": 0.208,
+      "proof_gen_ms": 0.54,
+      "verify_ms": 0.0082,
+      "proof_bytes": 264
+    },
+    {
+      "structure": "Sorted roster + index",
+      "is_tree": false,
+      "n": 250,
+      "build_ms": 0.041,
+      "proof_gen_ms": 0.467,
+      "verify_ms": 0.0284,
+      "proof_bytes": 2
+    },
+    {
+      "structure": "Per-device signed credential",
+      "is_tree": false,
+      "n": 250,
+      "build_ms": 6657.142,
+      "proof_gen_ms": 0.073,
+      "verify_ms": 5.4295,
+      "proof_bytes": 2420
+    }
+  ],
+  "batch_vs_individual": [
+    {
+      "n": 5,
+      "batch_ms": 0.008,
+      "individual_ms": 0.016,
+      "speedup": 1.8,
+      "root_updates_batch": 1,
+      "root_updates_individual": 5
+    },
+    {
+      "n": 10,
+      "batch_ms": 0.01,
+      "individual_ms": 0.049,
+      "speedup": 5.0,
+      "root_updates_batch": 1,
+      "root_updates_individual": 10
+    },
+    {
+      "n": 25,
+      "batch_ms": 0.024,
+      "individual_ms": 0.314,
+      "speedup": 13.1,
+      "root_updates_batch": 1,
+      "root_updates_individual": 25
+    },
+    {
+      "n": 50,
+      "batch_ms": 0.044,
+      "individual_ms": 1.074,
+      "speedup": 24.2,
+      "root_updates_batch": 1,
+      "root_updates_individual": 50
+    },
+    {
+      "n": 72,
+      "batch_ms": 0.061,
+      "individual_ms": 2.199,
+      "speedup": 35.8,
+      "root_updates_batch": 1,
+      "root_updates_individual": 72
+    },
+    {
+      "n": 100,
+      "batch_ms": 0.081,
+      "individual_ms": 4.176,
+      "speedup": 51.8,
+      "root_updates_batch": 1,
+      "root_updates_individual": 100
+    },
+    {
+      "n": 250,
+      "batch_ms": 0.206,
+      "individual_ms": 26.187,
+      "speedup": 127.2,
+      "root_updates_batch": 1,
+      "root_updates_individual": 250
+    }
+  ],
+  "current_baseline": [
+    {
+      "n": 5,
+      "register_all_ms": 0.019,
+      "per_device_us": 3.9
+    },
+    {
+      "n": 10,
+      "register_all_ms": 0.024,
+      "per_device_us": 2.4
+    },
+    {
+      "n": 25,
+      "register_all_ms": 0.058,
+      "per_device_us": 2.3
+    },
+    {
+      "n": 50,
+      "register_all_ms": 0.122,
+      "per_device_us": 2.4
+    },
+    {
+      "n": 72,
+      "register_all_ms": 0.159,
+      "per_device_us": 2.2
+    },
+    {
+      "n": 100,
+      "register_all_ms": 0.247,
+      "per_device_us": 2.5
+    },
+    {
+      "n": 250,
+      "register_all_ms": 0.563,
+      "per_device_us": 2.3
+    }
+  ],
+  "attacks": {
+    "passed": 6,
+    "total": 6
+  },
+  "backend": {
+    "backend": "pure-python",
+    "note": "kyber-py / dilithium-py pure-Python reference implementations. Algorithms and key sizes are the real NIST standards; raw speed is roughly 1-2 orders of magnitude slower than optimised C.",
+    "post_quantum": true,
+    "kem_name": "ML-KEM-768 (FIPS 203)",
+    "sig_name": "ML-DSA-44 (FIPS 204)",
+    "symmetric": "AES-256-GCM",
+    "kem_public_bytes": 1184,
+    "kem_ciphertext_bytes": 1088,
+    "sig_public_bytes": 1312,
+    "signature_bytes": 2420
+  },
+  "our_node_cap": 72
+}
