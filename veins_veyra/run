@@ -1,0 +1,20 @@
+#!/bin/bash
+#
+# Run the VEYRA Phase 3a scenario. Start veins_launchd and
+# gateway_service.py first (see PHASE3A.md).
+#
+#   ./run -u Cmdenv              no GUI, fastest: use this for measurements
+#   ./run                        Qtenv GUI (watch the cars and RSUs)
+#   ./run -u Cmdenv -c NoAttacks another configuration from omnetpp.ini
+#
+DIR="$(cd "$(dirname "$0")" && pwd)"
+VEINS="$(tr -d '\r\n' < "$DIR/out/veins_path" 2>/dev/null)"
+if [ -z "$VEINS" ]; then
+    echo "Run ./configure and make first." >&2
+    exit 1
+fi
+cd "$DIR/simulations" || exit 1
+# Veins first: on Windows, veyra.dll can only find libveins.dll if it is
+# already loaded.
+exec opp_run -l "$VEINS/src/veins" -l ../src/veyra \
+    -n "../src;$VEINS/src/veins;." --image-path="$VEINS/images" "$@"

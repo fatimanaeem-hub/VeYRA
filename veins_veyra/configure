@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+"""
+Generate the Makefile for the VEYRA Veins project (links against Veins).
+
+Run it once from this folder, inside the OMNeT++ shell:
+    ./configure                        # Veins at ../../veins-5.3.1 (C:\\fyp\\veins-5.3.1)
+    ./configure --with-veins=PATH      # Veins somewhere else
+then:
+    make
+"""
+import argparse
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument("--with-veins", dest="veins", default=os.environ.get("VEINS_HOME", ""),
+                help="path to Veins 5.3.1 (default: $VEINS_HOME, else ../../veins-5.3.1)")
+args = ap.parse_args()
+
+candidates = [args.veins] if args.veins else [
+    os.path.join(HERE, "..", "..", "veins-5.3.1"),   # C:\fyp\<VEYRA copy>\veins_veyra -> C:\fyp\veins-5.3.1
+    os.path.join(HERE, "..", "..", "veins"),
+    os.path.join(HERE, "..", "veins-5.3.1"),
+]
+veins = next((os.path.abspath(c) for c in candidates if c and os.path.isfile(os.path.join(c, "print-veins-version"))), None)
+if not veins:
+    sys.exit("Veins not found. Tried:\n  " + "\n  ".join(os.path.abspath(c) for c in candidates if c)
+             + "\nUse ./configure --with-veins=/c/fyp/veins-5.3.1")
+
+try:
+    version = subprocess.check_output(["env", os.path.join(veins, "print-veins-version")]).decode().strip()
+except Exception:
+    version = "?"
+if version != "5.3.1":
+    print("WARNING: found Veins %s at %s; this project was tested with 5.3.1" % (version, veins))
+
+lib_dir = os.path.join(veins, "src")
+if not any(f.startswith(("libveins", "veins")) and f.endswith((".so", ".dll", ".dylib"))
+           for f in os.listdir(lib_dir)):
+    print("WARNING: Veins does not look built yet (no libveins in %s).\n"
+          "         Build it first:  cd %s && ./configure && make" % (lib_dir, veins))
+
+def rel_or_abs(target, start):
+    """Relative path if possible (different drives on Windows: absolute)."""
+    try:
+        return os.path.relpath(target, start).replace("\\", "/")
+    except ValueError:
+        return os.path.abspath(target).replace("\\", "/")
+
+
+src = os.path.join(HERE, "src")
+veins_src_rel = rel_or_abs(lib_dir, src)
+flags = ["-f", "--deep", "--make-so", "-o", "veyra", "-O", "out", "-I.",
+         "-I" + veins_src_rel, "-L" + veins_src_rel, "-lveins$(D)"]
+print("opp_makemake " + " ".join(flags))
+subprocess.check_call(["env", "opp_makemake"] + flags, cwd=src)   # same call as Veins' own configure
+
+# The run script needs Veins' path relative to the simulations folder.
+os.makedirs(os.path.join(HERE, "out"), exist_ok=True)
+rel = rel_or_abs(veins, os.path.join(HERE, "simulations"))
+with open(os.path.join(HERE, "out", "veins_path"), "w", newline="\n") as f:
+    f.write(rel + "\n")
+print("Veins: %s\nConfigured. Now run: make" % veins)

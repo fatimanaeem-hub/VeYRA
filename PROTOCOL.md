@@ -1,8 +1,9 @@
 # VEYRA RSU ⇄ Gateway protocol (v1)
 
 How an RSU inside OMNeT++/Veins talks to the gateway service outside it.
-`fake_omnet.py` speaks exactly this protocol, so anything that works with it
-will work with the real `VeyraRsuApp`.
+`fake_omnet.py`, `sumo_driver.py` and the real OMNeT++ RSU app
+(`veins_veyra/src/veyra/VeyraRsuApp.cc`, Phase 3a, see `PHASE3A.md`) all speak
+exactly this protocol.
 
 ```
  OMNeT++ / Veins                                  gateway_service.py (Python)

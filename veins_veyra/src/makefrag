@@ -1,0 +1,27 @@
+#
+# Extra build rules for the VEYRA Veins project (copied from Veins' own
+# makefrag): Winsock and DLL export fixes on Windows.
+#
+ifneq (,$(findstring win32,$(PLATFORM)))
+  # GatewayLink uses Winsock to talk to gateway_service.py
+  LDFLAGS += -lws2_32
+  ENABLE_AUTO_IMPORT=-Wl,--enable-auto-import
+  LDFLAGS := $(filter-out $(ENABLE_AUTO_IMPORT), $(LDFLAGS))
+
+  # FIX for clang not exporting typeinfo and other thunks on Windows
+  ifeq ($(CC),clang)
+    DEFFILE = $O/typeinfo.def
+    LDFLAGS += $(DEFFILE)
+
+.PHONY: all
+
+all:
+
+$(DEFFILE): $(OBJS)  $(wildcard $(EXTRA_OBJS)) Makefile $(CONFIGFILE)
+	$(Q)$(DLLTOOL) --export-all-symbols --kill-at --output-def $O/all.def $(OBJS) $(EXTRA_OBJS)
+	$(Q)grep -E '( *_ZTI)|( *_ZThn)|( *_ZTv0)|EXPORTS' $O/all.def | sed 's/ @.*//' >$(DEFFILE)
+
+$O/$(TARGET): $(DEFFILE)
+
+  endif
+endif
