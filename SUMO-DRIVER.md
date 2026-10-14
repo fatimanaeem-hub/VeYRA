@@ -1,4 +1,4 @@
-# SUMO driver (Phase 2.5)
+# SUMO driver (Phase 2.5, with `--follow` added in 2.6)
 
 `sumo_driver.py` drives the gateway service with **real SUMO traffic** instead
 of the made-up straight road in `fake_omnet.py`. It sends exactly the same
@@ -34,6 +34,33 @@ python sumo_driver.py --sumocfg C:\fyp\veins-5.3.1\examples\veins\erlangen.sumo.
 Add `--gui` to window 2 to watch it in sumo-gui: tracked cars are blue, the
 compromised car turns red, and the RSUs are red markers on the route.
 
+### Watch the attack: `--follow`
+
+```cmd
+python sumo_driver.py --sumocfg C:\fyp\veins-5.3.1\examples\veins\erlangen.sumo.cfg --follow
+```
+
+sumo-gui opens zoomed in at street level and **follows the compromised car**
+(`flow0.3` by default). Before that car enters the map it follows the first
+tracked car, and when it leaves it switches to another one. The window
+prints `[follow] sumo-gui now following ...` each time it switches.
+
+| On screen | Meaning |
+|---|---|
+| Blue cars with names (`flow0.2`, …) | Tracked cars sending honest readings |
+| **Red car inside a red circle** | The compromised car, circled the moment it starts reporting 250+ km/h |
+| Yellow cars | Other SUMO cars the driver does not track |
+| Red markers `rsu[0]` … `rsu[2]` | The roadside units |
+| Red / blue shapes | Buildings and areas from the Erlangen map |
+
+Cars and RSU markers are drawn 6× larger than life so they are visible
+(`--car-size` changes it). `--follow` runs with a 100 ms delay per step so
+the movement is watchable; drag the Delay slider in sumo-gui to change it
+live. **For measurement runs use plain mode (no `--gui`/`--follow`) or
+`--delay 0`**, since the delay stretches wall-clock time.
+
+The first second or two may show the whole map before the view zooms in.
+
 `SUMO_HOME` must point to your SUMO folder (`C:\fyp\sumo-1.22.0`); the driver
 uses the TraCI library that ships with it.
 
@@ -43,6 +70,10 @@ uses the TraCI library that ships with it.
 |---|---|---|
 | `--sumocfg` | Veins Erlangen example | Any SUMO scenario |
 | `--gui` | off | Use sumo-gui |
+| `--follow` | off | sumo-gui zooms in and follows the compromised car (implies `--gui`) |
+| `--zoom` | 1000 | Zoom used by `--follow`, about 500 m across; higher is closer |
+| `--delay` | 100 with GUI, else 0 | sumo-gui delay per step in ms |
+| `--car-size` | 6 | How much larger cars and RSU markers are drawn |
 | `--max-vehicles` | 20 | Track the first N cars SUMO inserts. **Match the service's `--vehicles`**, since FT is derived from network size |
 | `--duration` | 240 | Simulated seconds after the first car departs. Needs ≥ 150 for the old-replay test |
 | `--compromised` | 3 | Which tracked car turns malicious (0 = first car) |

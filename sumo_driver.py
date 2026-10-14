@@ -23,7 +23,8 @@ Run (two Command Prompt windows, in this folder):
     python gateway_service.py --vehicles 20
     python sumo_driver.py --sumocfg C:\\fyp\\veins-5.3.1\\examples\\veins\\erlangen.sumo.cfg
 
-Add --gui to watch the cars in sumo-gui.
+Add --gui to watch the cars in sumo-gui, or --follow to have the view zoom in
+on the compromised car and follow it (switching to another car when it leaves).
 """
 
 from __future__ import annotations
@@ -41,6 +42,22 @@ from pathlib import Path
 from fake_omnet import Check, Rsu       # same RSU connection and check helpers
 
 DEFAULT_CFG = r"C:\fyp\veins-5.3.1\examples\veins\erlangen.sumo.cfg"
+VIEW = "View #0"
+
+# sumo-gui view settings: cars and RSU markers drawn larger with their names,
+# so they are visible at street level. Attribute names are SUMO 1.22's
+# (GUISettingsHandler); anything not listed keeps the "standard" default.
+GUI_SETTINGS = """<viewsettings>
+    <scheme name="veyra">
+        <vehicles vehicle_exaggeration="{veh}" vehicle_constantSize="0"
+                  vehicleName_show="1" vehicleName_size="{label}"
+                  vehicleName_color="0,0,0"/>
+        <pois poi_exaggeration="{poi}" poiName_show="1" poiName_size="{label}"
+              poiName_color="0,0,0"/>
+    </scheme>
+    <delay value="{delay}"/>
+</viewsettings>
+"""
 
 
 # --------------------------------------------------------------------------
@@ -139,6 +156,17 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sumocfg", default=DEFAULT_CFG, help="SUMO .sumocfg to run")
     ap.add_argument("--gui", action="store_true", help="use sumo-gui to watch the cars")
+    ap.add_argument("--follow", action="store_true",
+                    help="sumo-gui zooms in on the compromised car and follows it "
+                         "(implies --gui)")
+    ap.add_argument("--zoom", type=float, default=1000.0,
+                    help="sumo-gui zoom level used by --follow (default 1000, about "
+                         "500 m across; higher = closer)")
+    ap.add_argument("--delay", type=float, default=None,
+                    help="sumo-gui delay per step in ms (default 100 with --gui/--follow); "
+                         "use 0 for measurement runs")
+    ap.add_argument("--car-size", type=float, default=6.0,
+                    help="how much larger sumo-gui draws cars and RSU markers (default 6)")
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--ports", default="9001,9002,9003")
     ap.add_argument("--rsu", default="",
@@ -166,6 +194,11 @@ def main() -> int:
         print(r"  --sumocfg C:\fyp\veins-5.3.1\examples\veins\erlangen.sumo.cfg")
         return 2
 
+    if args.follow:
+        args.gui = True
+    if args.delay is None:
+        args.delay = 100.0 if args.gui else 0.0
+
     traci = import_traci()
     ports = [int(p) for p in args.ports.split(",") if p.strip()]
 
@@ -180,11 +213,20 @@ def main() -> int:
               f"{args.max_vehicles}")
         return 2
 
+    # -- output folder (also holds the sumo-gui settings for this run)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    out_dir = Path(args.out) / f"sumo-run-{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     # -- start SUMO
     cmd = [sumo_binary(args.gui), "-c", args.sumocfg, "--no-step-log", "true",
            "--quit-on-end", "true"]
     if args.gui:
-        cmd += ["--start", "true"]
+        settings = out_dir / "gui-settings.xml"
+        settings.write_text(GUI_SETTINGS.format(veh=args.car_size, poi=args.car_size * 2,
+                                                label=60, delay=args.delay))
+        cmd += ["--start", "true", "--gui-settings-file", str(settings),
+                "--delay", str(args.delay)]
     traci.start(cmd)
     step = traci.simulation.getDeltaT()
 
@@ -215,10 +257,13 @@ def main() -> int:
         print(f"  note: service expects {hello['expected_vehicles']} vehicles, this run tracks "
               f"up to {args.max_vehicles}; FT comes from the service's number.")
 
+    if args.gui:
+        try:
+            traci.gui.setSchema(VIEW, "veyra")
+        except traci.TraCIException:
+            pass
+
     # -- output
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    out_dir = Path(args.out) / f"sumo-run-{stamp}"
-    out_dir.mkdir(parents=True, exist_ok=True)
     fh = open(out_dir / "readings.csv", "w", newline="")
     rows = csv.writer(fh)
     rows.writerow(["sim_s", "vehicle", "rsu", "gateway", "true_speed_kmh",
@@ -270,6 +315,34 @@ def main() -> int:
     t = 0.0
     done_attacks: set[str] = set()
     wall0 = time.perf_counter()
+    followed: list[str | None] = [None]
+
+    def update_follow() -> None:
+        """Keep the view on the compromised car; if it is not on the road
+        (yet, or any more), follow the newest tracked car that is."""
+        if not args.follow:
+            return
+        live_ids = [c.vid for c in cars.values() if c.active]
+        if not live_ids:
+            return
+        tracked = list(cars.values())
+        want = None
+        if attacks and args.compromised < len(tracked) and tracked[args.compromised].active:
+            want = tracked[args.compromised].vid
+        elif followed[0] in live_ids:
+            want = followed[0]
+        else:
+            want = live_ids[-1]
+        if want != followed[0]:
+            try:
+                x, y = traci.vehicle.getPosition(want)
+                traci.gui.setZoom(VIEW, args.zoom)
+                traci.gui.setOffset(VIEW, x, y)          # jump there at once...
+                traci.gui.trackVehicle(VIEW, want)       # ...then keep following
+                followed[0] = want
+                print(f"  [follow] sumo-gui now following {want}", flush=True)
+            except traci.TraCIException:
+                pass
 
     try:
         while traci.simulation.getMinExpectedNumber() > 0:
@@ -294,6 +367,7 @@ def main() -> int:
             if rel > args.duration:
                 break
             live = [c for c in cars.values() if c.active]
+            update_follow()
 
             # handover: handshake whenever the nearest RSU changes
             for c in live:
@@ -324,6 +398,12 @@ def main() -> int:
                          "co2": round(traci.vehicle.getCO2Emission(c.vid), 1)}
                 lying = (bad is c and c.departed_at is not None
                          and t - c.departed_at >= args.attack_start)
+                if lying and args.gui and "highlighted" not in done_attacks:
+                    try:
+                        traci.vehicle.highlight(c.vid, (255, 0, 0, 255), 12)
+                    except traci.TraCIException:
+                        pass
+                    done_attacks.add("highlighted")
                 if lying:
                     rep = send_reading(c, c.rsu, t, args.fake_speed + (t % 7) * 4, x, y,
                                        mode="compromised", truth="malicious", extra=extra)
