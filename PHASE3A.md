@@ -38,9 +38,11 @@ use.
 | `veins_veyra/src/veyra/VeyraRsuApp.*` | RSU app: the bridge to `gateway_service.py` |
 | `veins_veyra/src/veyra/VeyraAttackerApp.*` | Roadside attacker: unregistered identity, tamper, replay inside and outside the window |
 | `veins_veyra/src/veyra/GatewayLink.*` | TCP client and tiny JSON reader (Windows and Linux) |
+| `veins_veyra/src/veyra/VeyraGui.*` | Optional sumo-gui visuals (`Gui` configuration) |
+| `veins_veyra/simulations/veyra-gui.xml` | How sumo-gui draws the scenario: larger cars, names, markers |
 | `veins_veyra/simulations/omnetpp.ini` | Scenario settings and configurations |
 | `veins_veyra/simulations/VeyraScenario.ned` | The network: `rsu[numRsus]` plus `eve` |
-| `veins_veyra/simulations/erlangen.*`, `config.xml`, `antenna.xml` | Copied from the Veins example |
+| `veins_veyra/simulations/erlangen.*`, `config.xml`, `antenna.xml` | Copied from the Veins example. `erlangen.sumo.cfg` also loads `veyra-gui.xml` (sumo-gui only); `erlangen.poly.xml` lost its 20 unnamed map points so they are not mistaken for RSU markers; buildings unchanged |
 | `veins_veyra/configure`, `Makefile`, `run` | Build and run scripts |
 | `analyze_omnet.py` | Reads a run's results: attack checks, radio numbers, blockchain numbers |
 | `run_experiments.py` | Runs several configurations × seeds and averages them |
@@ -59,10 +61,10 @@ make
 
 Then build this project. The `configure` script finds Veins at
 `C:\fyp\veins-5.3.1` when this folder sits in `C:\fyp\`, e.g.
-`C:\fyp\VEYRA-veins-3a\`:
+`C:\fyp\VEYRA-veins-3a-gui\`:
 
 ```bash
-cd /c/fyp/VEYRA-veins-3a/veins_veyra
+cd /c/fyp/VEYRA-veins-3a-gui/veins_veyra
 ./configure          # or: ./configure --with-veins=/c/fyp/veins-5.3.1
 make
 ```
@@ -83,7 +85,7 @@ Use `sumo.exe` (no GUI) for measurements; `sumo-gui.exe` also works.
 **Window 2, Command Prompt: the gateways**
 
 ```cmd
-cd C:\fyp\VEYRA-veins-3a
+cd C:\fyp\VEYRA-veins-3a-gui
 python gateway_service.py --vehicles 20
 ```
 
@@ -93,7 +95,7 @@ from the network size).
 **Window 3, OMNeT++ shell: the simulation**
 
 ```bash
-cd /c/fyp/VEYRA-veins-3a/veins_veyra
+cd /c/fyp/VEYRA-veins-3a-gui/veins_veyra
 ./run -u Cmdenv        # no GUI: about 40-60 s for 240 simulated seconds
 ./run                  # Qtenv GUI: watch the cars, RSUs and eve
 ```
@@ -106,6 +108,52 @@ python analyze_omnet.py
 ```
 
 Each run needs a fresh gateway service; window 1 can stay open.
+
+## Watching it in sumo-gui
+
+For demos, run the `Gui` configuration with sumo-gui:
+
+```bash
+# window 1: sumo-gui instead of sumo
+cd /c/fyp/veins-5.3.1
+bin/veins_launchd -vv -c C:/fyp/sumo-1.22.0/bin/sumo-gui.exe
+
+# window 2 as usual: python gateway_service.py --vehicles 20
+
+# window 3
+cd /c/fyp/VEYRA-veins-3a-gui/veins_veyra
+./run -u Cmdenv -c Gui      # sumo-gui only
+./run -c Gui                # sumo-gui and the OMNeT++ Qtenv window side by side
+```
+
+What sumo-gui shows:
+
+| On screen | Meaning |
+|---|---|
+| **Blue** car | Has a session with rsu[0] (GW-00) |
+| **Green** car | Has a session with rsu[1] (GW-01) |
+| **Orange** car | Has a session with rsu[2] (GW-02) |
+| **Grey** car | No session: out of coverage, or switching RSU |
+| **Red** car | The compromised car, from the moment it starts lying |
+| Coloured dot `rsu[0] -> GW-00` | An RSU, in its colour |
+| Red dot `eve (attacker)` | The roadside attacker |
+
+The camera follows the first car, then switches to the compromised car when
+it enters (window 3 prints `sumo-gui now following ...`). You can see the
+handovers happen: a car turns from blue to grey to green as it drives from
+rsu[0] to rsu[1].
+
+- **Speed:** `Gui` runs at real-time pace, so 240 simulated seconds take about
+  4 minutes. Change `realtimescheduler-scaling` in `omnetpp.ini` (`[General]`)
+  to `2` for double speed or `0.5` for half.
+- **Results are still valid:** the visuals only send extra colour and camera
+  commands to SUMO. Measurement runs (`Default`, etc.) send none of them.
+- **At the end:** close the sumo-gui window yourself; window 1 then waits for
+  the next run.
+- If you run `-c Gui` with plain `sumo.exe`, window 3 prints a one-line note
+  that the camera commands were skipped, and everything else works.
+- Without `-c Gui`, sumo-gui still shows larger, labelled cars, but in their
+  normal yellow and with no markers.
 
 ## What you should see
 
@@ -157,6 +205,7 @@ expected: it does **not** stop these two attacks.
 | `NoCpuModel` | Gateway processing time not turned into delay | Radio-only latency, for comparison |
 | `ClassicalSizesNoCpuModel` | Both of the above | Packet size as the only difference from `NoCpuModel` |
 | `AllCars` | Every car SUMO inserts takes part | Load test. **Start the service with `--vehicles 60`** |
+| `Gui` | `Default` plus visuals in sumo-gui, at real-time speed | Demos: see "Watching it in sumo-gui" |
 
 `./run -u Cmdenv -c NoAttacks --seed-set=2` picks a configuration and a seed.
 A seed changes the radio randomness; the traffic is the same Erlangen flow
@@ -171,7 +220,7 @@ Python without VEYRA's packages, so point `--python` at your normal one
 (`where python` in a Command Prompt shows the path):
 
 ```bash
-cd /c/fyp/VEYRA-veins-3a
+cd /c/fyp/VEYRA-veins-3a-gui
 python run_experiments.py --configs Default NoAttacks --seeds 3 \
     --python C:/Users/<you>/AppData/Local/Programs/Python/Python312/python.exe
 ```
@@ -300,7 +349,7 @@ and OMNeT++ writes `.sca`/`.vec` files to `veins_veyra\simulations\results\`.
    behalf; the frames on the radio are padded to the real post-quantum sizes.
 2. **One shared DAG.** All gateways share one ledger. Phase 3b gives each
    gateway its own copy and sends transactions between them over simulated
-   links.
+   links: see `PHASE3B.md` (configurations `Replicated*`).
 3. **The RSU → service hop is a local socket**, not counted as latency. A
    real RSU would have the gateway inside it.
 4. **Handshake processing time covers both sides** (vehicle and gateway),

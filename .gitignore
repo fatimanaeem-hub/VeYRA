@@ -1,3 +1,14 @@
 __pycache__/
 *.pyc
-evidence/results/
+evidence/
+results/
+
+# OMNeT++ / Veins build output (veins_veyra)
+veins_veyra/out/
+veins_veyra/src/out/
+veins_veyra/src/Makefile
+*_m.cc
+*_m.h
+*.so
+*.dll
+*.dylib

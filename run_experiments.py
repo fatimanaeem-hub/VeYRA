@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Run Phase 3a configurations several times and compare them.
+Run Phase 3a/3b configurations several times and compare them.
 
 For every configuration and seed it starts gateway_service.py, runs the
 OMNeT++ scenario without GUI, waits for both to finish, then prints the
@@ -10,6 +10,11 @@ Run it from the OMNeT++ shell (so opp_run is found), in the VEYRA folder,
 with veins_launchd already running in another window:
 
     python run_experiments.py --configs Default ClassicalSizes --seeds 3
+    python run_experiments.py --configs Default Replicated Replicated4G ReplicatedLossy --seeds 5
+    python run_experiments.py --configs Replicated Replicated6 Replicated10 --seeds 3
+
+The number of RSUs (and so gateway ports) follows the configuration
+(Replicated6 -> 6, Replicated10 -> 10, everything else -> 3).
 
 On Windows the OMNeT++ shell has its own Python without VEYRA's packages,
 so point --python at the Python you installed requirements.txt into
@@ -38,8 +43,23 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from analyze_omnet import analyse, load_run  # noqa: E402
 
-# Configurations whose omnetpp.ini sets a different number of cars.
+# Configurations whose omnetpp.ini sets a different number of cars or RSUs.
 CONFIG_VEHICLES = {"AllCars": 60}
+CONFIG_RSUS = {"Replicated6": 6, "Replicated10": 10}
+
+
+def rep(a, *keys):
+    """A value from the Phase 3b replication summary, or None for shared-ledger runs."""
+    v = (a.get("backhaul") or {}).get("replication")
+    for k in keys:
+        if v is None:
+            return None
+        v = v.get(k) if isinstance(v, dict) else None
+    return v
+
+
+def ms(v):
+    return None if v is None else v * 1000.0
 
 METRICS = [
     ("delivery ratio %", lambda a: (a["network"]["delivery_ratio"] or 0) * 100),
@@ -56,6 +76,19 @@ METRICS = [
     ("finality p95 s", lambda a: (a["blockchain"]["finality_s"] or {}).get("p95")),
     ("false readings finalised", lambda a: (a["blockchain"]["malicious_readings"] or {}).get("finalised")),
     ("attack checks passed", lambda a: sum(1 for c in a["attack_checks"] if c["result"].startswith("PASS"))),
+    ("FT", lambda a: a["blockchain"]["FT"]),
+    ("tx published", lambda a: a["blockchain"]["tx_published"]),
+    ("tx finalised", lambda a: a["blockchain"]["tx_finalised"]),
+    ("max gateway CPU busy %", lambda a: max(a["network"].get("gateway_busy_pct", {}).values() or [0])),
+    ("propagation p50 ms", lambda a: ms(rep(a, "propagation_to_each_replica_s", "p50"))),
+    ("propagation to all p95 ms", lambda a: ms(rep(a, "propagation_to_all_replicas_s", "p95"))),
+    ("orphans resolved", lambda a: rep(a, "orphans_resolved")),
+    ("stale parent references", lambda a: rep(a, "stale_parent_references")),
+    ("backhaul packets lost", lambda a: (a.get("backhaul") or {}).get("lost_on_link")),
+    ("backhaul MB (data)", lambda a: None if not a.get("backhaul") else a["backhaul"]["data_bytes_on_wire"] / 1e6),
+    ("busiest link kbit/s", lambda a: (a.get("backhaul") or {}).get("busiest_link_kbps")),
+    ("replicas agree (final everywhere %)", lambda a: None if not rep(a, "finalised_at_origin") else
+        100.0 * rep(a, "final_in_every_replica_at_end") / rep(a, "finalised_at_origin")),
 ]
 
 
@@ -84,7 +117,8 @@ def main() -> int:
     ap.add_argument("--seeds", type=int, default=3, help="runs per configuration (seed-set 1..N)")
     ap.add_argument("--vehicles", type=int, default=20,
                     help="gateway_service.py --vehicles (default 20; AllCars uses 60)")
-    ap.add_argument("--rsus", type=int, default=3, help="number of RSUs/gateways (default 3)")
+    ap.add_argument("--rsus", type=int, default=3,
+                    help="number of RSUs/gateways for configurations not in CONFIG_RSUS (default 3)")
     ap.add_argument("--python", default=sys.executable,
                     help="Python that has VEYRA's requirements installed (default: this one)")
     ap.add_argument("--project", default=str(HERE / "veins_veyra"))
@@ -102,8 +136,8 @@ def main() -> int:
     if not bash:
         sys.exit("bash not found: run this from the OMNeT++ shell.")
 
-    ports = [9001 + i for i in range(args.rsus)]
-    busy = [p for p in ports if port_open(p)]
+    max_rsus = max([CONFIG_RSUS.get(c, args.rsus) for c in args.configs])
+    busy = [p for p in range(9001, 9001 + max_rsus) if port_open(p)]
     if busy:
         sys.exit(f"Port(s) {busy} already in use: stop the gateway service that is running.")
 
@@ -120,13 +154,15 @@ def main() -> int:
         for cfg in args.configs:
             n += 1
             vehicles = CONFIG_VEHICLES.get(cfg, args.vehicles)
+            ports = [9001 + i for i in range(CONFIG_RSUS.get(cfg, args.rsus))]
             tag = f"{cfg}-seed{seed}"
-            print(f"[{n}/{total}] {tag}: starting gateway service ({vehicles} vehicles) ...", flush=True)
+            print(f"[{n}/{total}] {tag}: starting gateway service ({vehicles} vehicles, "
+                  f"{len(ports)} gateways) ...", flush=True)
             before = set((HERE / "results").glob("omnet-run-*"))
 
             svc_log = open(batch / f"service-{tag}.log", "w")
             svc = subprocess.Popen([args.python, "gateway_service.py", "--vehicles", str(vehicles), "--quiet",
-                                    "--ports", ",".join(map(str, ports))],
+                                    "--ports", ",".join(map(str, ports)), "--seed", str(seed)],
                                    cwd=HERE, stdout=svc_log, stderr=subprocess.STDOUT)
             if not wait_for_ports(ports, svc):
                 svc.kill()
@@ -172,10 +208,10 @@ def main() -> int:
     print("=" * 78)
     cfgs = [c for c in args.configs if by_config[c]]
     width = 24
-    print(f"  {'':28}" + "".join(f"{c:>{width}}" for c in cfgs))
+    print(f"  {'':36}" + "".join(f"{c:>{width}}" for c in cfgs))
     summary = []
     for label, fn in METRICS:
-        line = f"  {label:28}"
+        line = f"  {label:36}"
         srow = {"metric": label}
         for c in cfgs:
             vals = [fn(a) for a in by_config[c] if fn(a) is not None]

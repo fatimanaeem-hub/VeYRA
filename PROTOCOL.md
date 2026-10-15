@@ -1,9 +1,15 @@
-# VEYRA RSU ⇄ Gateway protocol (v1)
+# VEYRA RSU ⇄ Gateway protocol (v2)
 
 How an RSU inside OMNeT++/Veins talks to the gateway service outside it.
 `fake_omnet.py`, `sumo_driver.py` and the real OMNeT++ RSU app
 (`veins_veyra/src/veyra/VeyraRsuApp.cc`, Phase 3a, see `PHASE3A.md`) all speak
 exactly this protocol.
+
+**v2 (Phase 3b)** adds a per-gateway ledger mode: `HELLO` may ask for
+`"ledger":"replicated"`, replies may carry an `outbox`, and three new messages
+(`GOSSIP`, `SIG_SHARE`, `FINAL`) carry what arrives over the backhaul. See
+[Phase 3b: replicated ledger](#phase-3b-replicated-ledger-v2). Everything in
+v1 is unchanged, so v1 clients still work.
 
 ```
  OMNeT++ / Veins                                  gateway_service.py (Python)
@@ -88,6 +94,47 @@ Reply `TICK_OK`: `published` (`tx_id`, `readings`, `c_j_bytes`, `parents`,
 - `BYE` acknowledges; the RSU can then close its connection.
 - `SHUTDOWN` stops the service, which writes `summary.json` and exits.
 
+## Phase 3b: replicated ledger (v2)
+
+`HELLO` gains `"ledger": "shared" | "replicated"` (default `shared`). The
+first RSU to say HELLO fixes the mode for the run; an RSU asking for the other
+mode gets an `ERROR`. `HELLO_OK` echoes `ledger_mode`.
+
+In **replicated** mode each gateway keeps its own copy of BC_Data. Anything a
+gateway needs to tell other gateways comes back in the reply as an **outbox**:
+
+```json
+"outbox": [{"kind":"GOSSIP","tx":"TX-00-00012","to":1,"bytes":412,"at_ms":7.9},
+           {"kind":"GOSSIP","tx":"TX-00-00012","to":-1,"bytes":412,"at_ms":7.9}]
+```
+
+| Field | Meaning |
+|---|---|
+| `kind` | `GOSSIP` (a new transaction), `SIG_SHARE` (one signature of a certificate), `FINAL` (a complete certificate) |
+| `tx` | Transaction id, `TX-<gateway>-<n>` (unique across replicas) |
+| `to` | Destination gateway index (rsu[j] ↔ GW-j); `-1` = the server |
+| `bytes` | Real payload size; the link adds its own header |
+| `at_ms` | When the gateway had the message ready, in ms after it started this work. The RSU sends it then (with the CPU model) |
+
+The RSU sends each outbox entry over the backhaul. When one arrives at another
+RSU, that RSU asks its own gateway, queued behind the gateway CPU like any
+other work:
+
+| Request | What the gateway does | Reply |
+|---|---|---|
+| `{"type":"GOSSIP","tx":…,"from":j}` | Re-checks the transaction (header hash, Merkle root, PoPQW) and adds it to its replica; if a parent has not arrived yet, keeps it as an **orphan** until it does | `GOSSIP_OK`, `status` = `added` / `orphan` / `duplicate` / `rejected` |
+| `{"type":"SIG_SHARE","tx":…,"from":j}` | (Origin only.) Verifies GW-j's ML-DSA-44 signature on H(Tx). With t valid shares the transaction is final; the reply's `outbox` then carries `FINAL` to every other gateway and the server | `SIG_SHARE_OK`, `status` = `ok` / `late` / `invalid`, `finalised` as in `TICK_OK` |
+| `{"type":"FINAL","tx":…,"from":j}` | Verifies the t signatures of the certificate, marks the transaction final in its replica | `FINAL_OK`, `status` = `applied` / `early` / `already` |
+
+`TICK` in replicated mode: publish into the gateway's own replica (outbox:
+`GOSSIP` to every other gateway and the server), then sign a share for every
+transaction that has reached FT **in this replica** (outbox: `SIG_SHARE` to its
+origin; the origin's own share is kept locally).
+
+Payload sizes (`pqdag/replica.py`): transaction = C_j + Eq. 10 fields
+(p50 ≈ 1,050 B, p95 ≈ 2,000 B at 20 cars and 3 RSUs); share = 2,420 + 40 B; certificate = t × 2,428 + 32 B
+(7,316 B at t = 3).
+
 ## Packet sizes to use inside OMNeT++ (v1)
 
 In v1 the cryptography runs in Python, so OMNeT++ sends packets **padded to the
@@ -142,5 +189,5 @@ Each run of the service writes to `results/run-<timestamp>/`:
 ## v1 simplifications (state these)
 
 1. Vehicle-side cryptography (Alg. 2 lines 5–7 and 17–21, Eq. 3–4) runs in the service on the vehicle's behalf. Packets on the air have the real sizes. v2 moves it into the C++ vehicle app.
-2. All gateways share one ledger object in one process. Gossip between separate ledgers comes with the three-laptop setup.
+2. All gateways share one ledger object in one process (v1 / `shared` mode). v2's `replicated` mode gives each gateway its own ledger, synchronised over simulated backhaul links in OMNeT++ (Phase 3b, `PHASE3B.md`).
 3. The RSU → service hop is a local socket. It does not exist in a real RSU, so it is not counted as radio latency.

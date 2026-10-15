@@ -50,8 +50,14 @@ from pathlib import Path
 from pqdag import clock, crypto
 from pqdag.ledger import DagLedger
 from pqdag.network import Gateway, SensorNode, Server
+from pqdag.replica import (ReplicaLedger, final_wire_bytes, share_wire_bytes,
+                           sign_share, tx_wire_bytes, verify_share)
 
-PROTOCOL_VERSION = 1
+# v2 adds per-gateway replicas (Phase 3b): GOSSIP, SIG_SHARE and FINAL
+# messages and an "outbox" in replies. v1 clients (Phase 3a) still work: they
+# never ask for replicated mode, so they never see the new fields.
+PROTOCOL_VERSION = 2
+LEDGER_MODES = ("shared", "replicated")
 READING_KIND, READING_UNIT = "speed", "km/h"
 
 
@@ -110,9 +116,23 @@ class GatewayService:
 
         n_gw = len(ports)
         n_nodes = n_gw + vehicles                         # gateways + sensors
+        self.n_nodes = n_nodes
         self.server = Server()
         self.ledger = DagLedger(network_nodes=n_nodes, difficulty_bits=difficulty,
                                 threshold_t=min(t, n_gw))
+        # Ledger mode is chosen by the first RSU that says HELLO (the OMNeT++
+        # configuration decides), so the service needs no extra flag.
+        self.mode: str | None = None
+        self.replicas: dict[str, ReplicaLedger] = {}
+        self.canon = {}                    # tx_id -> the origin's Transaction
+        self.shares: dict[str, dict] = {}  # tx_id -> {signer gid: share}, held by the origin
+        self.inflight_shares: dict[tuple[str, str], dict] = {}   # (tx_id, signer) -> share
+        self.final_done: set[str] = set()
+        self.repl = {"gossip_in": 0, "gossip_duplicate": 0, "gossip_orphaned": 0,
+                     "gossip_rejected": 0, "shares_signed": 0, "shares_received": 0,
+                     "shares_late": 0, "shares_invalid": 0, "finals_sent": 0,
+                     "finals_applied": 0, "finals_early": 0, "finals_invalid": 0}
+        self.backhaul_payload = {"GOSSIP": 0, "SIG_SHARE": 0, "FINAL": 0}
 
         # Gateways: register (Alg. 1 with proof-of-possession), then negotiate
         # Sk_j with the server so C_j can actually be opened later.
@@ -128,6 +148,8 @@ class GatewayService:
             g.establish_server_key()
             self.gateways.append(g)
             self.by_port[port] = g
+        self.gw_index = {g.gid: j for j, g in enumerate(self.gateways)}
+        self.by_gid = {g.gid: g for g in self.gateways}
 
         self.vehicles: dict[str, SensorNode] = {}
         # Every sealed reading a vehicle sent, kept so the replay attacks can
@@ -168,6 +190,7 @@ class GatewayService:
             "ft_paper_range": band["paper_range"],
             "difficulty_bits": difficulty, "threshold_t": self.ledger.t,
             "freshness_window_s": freshness_s, "aggregate_mode": "list",
+            "ledger_mode": None,
         }
 
     # ---- bookkeeping ----------------------------------------------------
@@ -206,8 +229,26 @@ class GatewayService:
 
     # ---- HELLO ----------------------------------------------------------
     def on_hello(self, g: Gateway, msg: dict) -> dict:
-        self._say(f"{g.gid}: RSU '{msg.get('rsu', '?')}' connected")
+        mode = msg.get("ledger", "shared")
+        if mode not in LEDGER_MODES:
+            raise ValueError(f"unknown ledger mode {mode!r}")
+        if self.mode is None:
+            self._set_mode(mode)
+        elif mode != self.mode:
+            raise ValueError(f"RSU asks for a {mode} ledger but this run already uses "
+                             f"{self.mode}; restart gateway_service.py between runs")
+        self._say(f"{g.gid}: RSU '{msg.get('rsu', '?')}' connected ({self.mode} ledger)")
         return {"type": "HELLO_OK", "ok": True, "gateway": g.gid, **self.config}
+
+    def _set_mode(self, mode: str) -> None:
+        self.mode = mode
+        self.config["ledger_mode"] = mode
+        if mode == "replicated":
+            for g in self.gateways:
+                r = ReplicaLedger(g.gid, self.n_nodes, self.ledger.difficulty, self.ledger.t)
+                self.replicas[g.gid] = r
+                g.ledger = r
+        self._say(f"ledger mode: {mode}", force=True)
 
     # ---- HANDSHAKE: Alg. 1 (first contact) + Alg. 2 ---------------------
     def on_handshake(self, g: Gateway, msg: dict) -> dict:
@@ -351,6 +392,8 @@ class GatewayService:
 
     # ---- TICK: Eq. 6-7 + Alg. 4 (publish) and Alg. 5 (finalise) ----------
     def on_tick(self, g: Gateway, msg: dict) -> dict:
+        if self.mode == "replicated":
+            return self.on_tick_replicated(g, msg)
         t0 = time.perf_counter()
         published = None
         if g.buffer:
@@ -417,10 +460,246 @@ class GatewayService:
                 "pending": st["pending"], "total": st["total"],
                 "proc_ms": round(proc_ms, 3)}
 
+    # ---- Phase 3b: per-gateway replicas -------------------------------------
+    def _publish(self, g: Gateway) -> tuple[dict | None, list[dict]]:
+        """Eq. 6-7 + Alg. 4 into g's own replica. Returns (published, outbox)."""
+        if not g.buffer:
+            return None, []
+        labels, self.pending_labels[g.gid] = self.pending_labels[g.gid], []
+        res = g.publish(mode="list")
+        if not res["ok"]:
+            self.readings_lost += len(labels)
+            self._count("publish_failed")
+            self._row(g, "PUBLISH", "", "", "", "fail", "Alg.4", None, None,
+                      None, None, "", res.get("error", ""))
+            self._say(f"{g.gid}: publish FAILED: {res.get('error')}", force=True)
+            return None, []
+        tx_id = res["tx"]["tx_id"]
+        tx = g.ledger.txs[tx_id]
+        self.canon[tx_id] = tx
+        self.tx_labels[tx_id] = labels
+        n_bad = sum(1 for l in labels if l["truth"] == "malicious")
+        self.malicious["published"] += n_bad
+        self.honest["published"] += len(labels) - n_bad
+        try:
+            opened = json.loads(self.server.open_aggregate(g.gid, tx.ciphertext))
+            ok = len(opened) == res["readings_used"]
+        except Exception:
+            ok = False
+        self.server_opened["ok" if ok else "failed"] += 1
+        self._count("transactions_published")
+        self._time("popqw_ms", res["popqw_ms"])
+        self._size("c_j_bytes", len(tx.ciphertext))
+        size = tx_wire_bytes(tx)
+        self._size("gossip_tx_bytes", size)
+        self._row(g, "PUBLISH", "", "", "", "ok", "Alg.4", None, None,
+                  len(tx.ciphertext), None, tx_id,
+                  f"{res['readings_used']} readings, {n_bad} malicious")
+        published = {"tx_id": tx_id, "readings": res["readings_used"],
+                     "c_j_bytes": len(tx.ciphertext), "parents": tx.parents,
+                     "popqw_ms": res["popqw_ms"], "retries": res["retries"],
+                     "server_opened": ok}
+        outbox = self._to_all(g, "GOSSIP", tx_id, size, server=True)
+        return published, outbox
+
+    def _to_all(self, g: Gateway, kind: str, tx_id: str, size: int,
+                server: bool = False) -> list[dict]:
+        me = self.gw_index[g.gid]
+        to = [j for j in range(len(self.gateways)) if j != me] + ([-1] if server else [])
+        self.backhaul_payload[kind] += size * len(to)
+        return [{"kind": kind, "tx": tx_id, "to": j, "bytes": size} for j in to]
+
+    def _finalise(self, origin: Gateway, tx_id: str) -> tuple[dict, list[dict]]:
+        """origin holds t verified shares: the certificate is complete."""
+        cert = list(self.shares[tx_id].values())[: self.ledger.t]
+        replica = self.replicas[origin.gid]
+        replica.mark_final(tx_id, cert)
+        self.final_done.add(tx_id)
+        tx = replica.txs[tx_id]
+        latency = tx.finalized_at - tx.created_at
+        cert_bytes = sum(s["bytes"] for s in cert)
+        labels = self.tx_labels.get(tx_id, [])
+        n_bad = sum(1 for l in labels if l["truth"] == "malicious")
+        self.malicious["finalised"] += n_bad
+        self.honest["finalised"] += len(labels) - n_bad
+        self.finality_s.append(latency)
+        self._size("certificate_bytes", cert_bytes)
+        self._count("transactions_finalised")
+        self._row(origin, "FINALISE", "", "", "", "ok", "Alg.5 (t shares)", None, None,
+                  cert_bytes, None, tx_id, f"latency {latency:.3f}s, {n_bad} malicious")
+        if n_bad:
+            first = self.malicious["finalised"] == n_bad
+            self._say(f"{tx_id} FINALISED containing {n_bad} malicious reading(s) - "
+                      "the base pipeline cannot tell"
+                      + ("  (further ones: see trace.csv)" if first and self.quiet else ""),
+                      force=first)
+        self.repl["finals_sent"] += 1
+        outbox = self._to_all(origin, "FINAL", tx_id, final_wire_bytes(len(cert)), server=True)
+        return ({"tx_id": tx_id, "latency_s": round(latency, 3), "cert_bytes": cert_bytes,
+                 "malicious_readings": n_bad}, outbox)
+
+    def _add_share(self, origin: Gateway, tx_id: str, share: dict) -> tuple[list, list]:
+        got = self.shares.setdefault(tx_id, {})
+        got[share["gateway_id"]] = share
+        if tx_id not in self.final_done and len(got) >= self.ledger.t:
+            fin, out = self._finalise(origin, tx_id)
+            return [fin], out
+        return [], []
+
+    @staticmethod
+    def _stamp(items: list[dict], t0: float) -> list[dict]:
+        """Mark when each outgoing message was ready (ms into this handler), so
+        the RSU can send it then instead of after the whole handler."""
+        at = round((time.perf_counter() - t0) * 1000.0, 3)
+        for o in items:
+            o.setdefault("at_ms", at)
+        return items
+
+    def on_tick_replicated(self, g: Gateway, msg: dict) -> dict:
+        t0 = time.perf_counter()
+        published, outbox = self._publish(g)
+        self._stamp(outbox, t0)
+        finalised: list[dict] = []
+        replica = self.replicas[g.gid]
+        t_sign = time.perf_counter()
+        signed = 0
+        for tx in replica.ready_to_sign():               # FT reached in this replica
+            share = sign_share(g, tx)
+            replica.signed.add(tx.tx_id)
+            signed += 1
+            self.repl["shares_signed"] += 1
+            origin = self.by_gid[tx.gateway_id]
+            if origin is g:
+                fin, out = self._add_share(g, tx.tx_id, share)
+                finalised += fin
+                outbox += self._stamp(out, t0)
+            else:
+                self.inflight_shares[(tx.tx_id, g.gid)] = share
+                size = share_wire_bytes()
+                self.backhaul_payload["SIG_SHARE"] += size
+                outbox += self._stamp([{"kind": "SIG_SHARE", "tx": tx.tx_id,
+                                        "to": self.gw_index[origin.gid], "bytes": size}], t0)
+        if signed:
+            self._time("share_sign_ms", (time.perf_counter() - t_sign) * 1000.0 / signed)
+        proc_ms = (time.perf_counter() - t0) * 1000.0
+        self._time("tick_ms", proc_ms)
+        st = replica.stats()
+        return {"type": "TICK_OK", "ok": True, "gateway": g.gid,
+                "published": published, "finalised": finalised,
+                "pending": st["pending"], "total": st["total"],
+                "orphans": len(replica.orphans), "shares_signed": signed,
+                "outbox": outbox, "proc_ms": round(proc_ms, 3)}
+
+    def on_gossip(self, g: Gateway, msg: dict) -> dict:
+        t0 = time.perf_counter()
+        tx_id = msg["tx"]
+        replica = self.replicas[g.gid]
+        res = replica.receive(self.canon[tx_id])
+        proc_ms = (time.perf_counter() - t0) * 1000.0
+        self._time("gossip_ms", proc_ms)
+        self.repl["gossip_in"] += 1
+        key = {"duplicate": "gossip_duplicate", "orphan": "gossip_orphaned",
+               "rejected": "gossip_rejected"}.get(res["status"])
+        if key:
+            self.repl[key] += 1
+        if res["status"] == "rejected":
+            self._row(g, "GOSSIP", "", "", "", "reject", "Alg.4 (receiver)", proc_ms,
+                      None, None, None, tx_id, res.get("reason", ""))
+        return {"type": "GOSSIP_OK", "ok": True, "gateway": g.gid, "tx": tx_id,
+                "status": res["status"], "added": len(res["added"]),
+                "orphans": len(replica.orphans), "outbox": [],
+                "proc_ms": round(proc_ms, 3)}
+
+    def on_sig_share(self, g: Gateway, msg: dict) -> dict:
+        t0 = time.perf_counter()
+        tx_id = msg["tx"]
+        signer = self.gateways[int(msg["from"])]
+        share = self.inflight_shares.pop((tx_id, signer.gid), None)
+        finalised, outbox, status = [], [], "ok"
+        if share is None:
+            status = "unknown"
+        elif tx_id in self.final_done:
+            status = "late"                      # t shares were already in
+            self.repl["shares_late"] += 1
+        elif not verify_share(signer, self.canon[tx_id].tx_hash, share):
+            status = "invalid"
+            self.repl["shares_invalid"] += 1
+        else:
+            self.repl["shares_received"] += 1
+            finalised, outbox = self._add_share(g, tx_id, share)
+            self._stamp(outbox, t0)
+        proc_ms = (time.perf_counter() - t0) * 1000.0
+        self._time("share_verify_ms", proc_ms)
+        return {"type": "SIG_SHARE_OK", "ok": True, "gateway": g.gid, "tx": tx_id,
+                "status": status, "finalised": finalised, "outbox": outbox,
+                "proc_ms": round(proc_ms, 3)}
+
+    def on_final(self, g: Gateway, msg: dict) -> dict:
+        t0 = time.perf_counter()
+        tx_id = msg["tx"]
+        origin = self.replicas[self.canon[tx_id].gateway_id]
+        cert = origin.txs[tx_id].tpq_sig
+        # Verify every signature of the certificate before accepting it.
+        ok = all(verify_share(self.by_gid[s["gateway_id"]], self.canon[tx_id].tx_hash, s)
+                 for s in cert)
+        replica = self.replicas[g.gid]
+        if not ok:
+            status = "invalid"
+            self.repl["finals_invalid"] += 1
+        elif replica.mark_final(tx_id, cert):
+            status = "applied"
+            self.repl["finals_applied"] += 1
+        elif tx_id in replica.final_waiting:
+            status = "early"               # applied when the transaction arrives
+            self.repl["finals_early"] += 1
+        else:
+            status = "already"
+        proc_ms = (time.perf_counter() - t0) * 1000.0
+        self._time("final_verify_ms", proc_ms)
+        return {"type": "FINAL_OK", "ok": True, "gateway": g.gid, "tx": tx_id,
+                "status": status, "outbox": [], "proc_ms": round(proc_ms, 3)}
+
+    def replication_summary(self) -> dict:
+        reps = self.replicas
+        prop, all_s = [], []
+        for tx_id, tx in self.canon.items():
+            arr = [r.arrived_at[tx_id] - tx.created_at for gid, r in reps.items()
+                   if gid != tx.gateway_id and tx_id in r.arrived_at]
+            prop += arr
+            if len(arr) == len(reps) - 1:
+                all_s.append(max(arr) if arr else 0.0)
+        in_all = sum(1 for t in self.canon if all(t in r.txs for r in reps.values()))
+        final_all = sum(1 for t in self.final_done
+                        if all(t in r.txs and r.txs[t].finalized for r in reps.values()))
+        waits = [w for r in reps.values() for w in r.orphan_waits]
+        return {
+            "replicas": len(reps),
+            "transactions_created": len(self.canon),
+            "propagation_to_each_replica_s": summarise(prop),
+            "propagation_to_all_replicas_s": summarise(all_s),
+            "in_every_replica_at_end": in_all,
+            "final_in_every_replica_at_end": final_all,
+            "finalised_at_origin": len(self.final_done),
+            "replica_sizes_at_end": {gid: r.stats()["total"] for gid, r in reps.items()},
+            "replica_finalised_at_end": {gid: r.stats()["finalized"] for gid, r in reps.items()},
+            "orphans_resolved": len(waits),
+            "orphan_wait_s": summarise(waits),
+            "orphans_at_end": sum(len(r.orphans) for r in reps.values()),
+            "stale_parent_references": sum(r.stale_parent_refs for r in reps.values()),
+            "messages": dict(self.repl),
+            "backhaul_payload_bytes": dict(self.backhaul_payload),
+        }
+
     # ---- STATS ----------------------------------------------------------
     def summary(self) -> dict:
         st = self.ledger.stats()
-        return {
+        if self.mode == "replicated":
+            st = {"total": len(self.canon), "finalized": len(self.final_done),
+                  "pending": len(self.canon) - len(self.final_done),
+                  "rejected": sum(len(r.rejected) + len(r.receive_rejected)
+                                  for r in self.replicas.values()),
+                  "publish_retries": sum(r.retry_count for r in self.replicas.values())}
+        out = {
             "config": self.config,
             "sim_time_s": round(self.sim.t, 3),
             "wall_time_s": round(time.time() - self.started_wall, 3),
@@ -438,13 +717,34 @@ class GatewayService:
             "registered_identities": len(self.server.bc_id.leaves),
             "vehicles_seen": len(self.vehicles),
         }
+        if self.mode == "replicated":
+            out["replication"] = self.replication_summary()
+        out["finality_breakdown_s"] = self.finality_breakdown()
+        return out
+
+    def finality_breakdown(self) -> dict:
+        """Time to finality = (created -> FT approvals in the origin's ledger)
+        + (FT reached -> certificate complete)."""
+        to_ft, cert = [], []
+        for tx_id in (self.final_done if self.mode == "replicated" else
+                      [t for t, x in self.ledger.txs.items() if x.finalized and x.gateway_id != "GENESIS"]):
+            led = self.replicas[self.canon[tx_id].gateway_id] if self.mode == "replicated" else self.ledger
+            tx = led.txs[tx_id]
+            reached = led.ft_reached_at.get(tx_id)
+            if reached is None or tx.finalized_at is None:
+                continue
+            to_ft.append(reached - tx.created_at)
+            cert.append(tx.finalized_at - reached)
+        return {"created_to_FT_approvals": summarise(to_ft),
+                "FT_to_certificate": summarise(cert)}
 
     def on_stats(self, g: Gateway, msg: dict) -> dict:
         return {"type": "STATS_OK", "ok": True, **self.summary()}
 
     # ---- dispatch -------------------------------------------------------
     HANDLERS = {"HELLO": "on_hello", "HANDSHAKE": "on_handshake",
-                "READING": "on_reading", "TICK": "on_tick", "STATS": "on_stats"}
+                "READING": "on_reading", "TICK": "on_tick", "STATS": "on_stats",
+                "GOSSIP": "on_gossip", "SIG_SHARE": "on_sig_share", "FINAL": "on_final"}
 
     def handle(self, port: int, line: bytes) -> dict | None:
         try:
@@ -582,7 +882,13 @@ def main() -> int:
                     help="Alg. 3 freshness window in seconds (default 120)")
     ap.add_argument("--out", default="results", help="results folder (default results/)")
     ap.add_argument("--quiet", action="store_true", help="only print rejections and errors")
+    ap.add_argument("--seed", type=int, default=None,
+                    help="seed for the random choice of parents (Alg. 4), so a run can be "
+                         "repeated exactly; default: different every run")
     args = ap.parse_args()
+    if args.seed is not None:
+        import random
+        random.seed(args.seed)
 
     ports = [int(p) for p in args.ports.split(",") if p.strip()]
     svc = GatewayService(ports, args.difficulty, args.t, args.vehicles,
