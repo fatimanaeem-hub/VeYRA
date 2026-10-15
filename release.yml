@@ -1,0 +1,114 @@
+# VEYRA / PQ-VehicleGuard - delivery (the "CD" half of the pipeline)
+#
+# Publishes a GitHub Release for one iteration, but only after the full CI
+# pipeline has passed on exactly that commit. The release carries:
+#   * VEYRA-<tag>-source.zip      the code of the branch, ready to unzip and run
+#   * VEYRA-<tag>-ci-results.zip  the results and logs the CI runs produced
+#
+# Two ways to start it:
+#   1. Actions tab -> Release -> Run workflow -> pick the branch, type a tag
+#      such as v3.1-3b-bcid -> Run. The workflow creates the tag itself.
+#   2. Push a tag that starts with "v" (only if you use Git on the command line).
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag for this release, e.g. v3.1-3b-bcid"
+        required: true
+        type: string
+      veins:
+        description: "Include the OMNeT++/Veins runs in the checks"
+        type: boolean
+        default: true
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write          # needed to create the tag and the release
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+    with:
+      veins: ${{ github.event_name == 'push' || inputs.veins }}
+
+  publish:
+    name: Publish release
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check the tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then TAG="$INPUT_TAG"; else TAG="$REF_NAME"; fi
+          if ! [[ "$TAG" =~ ^v[0-9A-Za-z._-]+$ ]]; then
+            echo "::error::Tag '$TAG' must start with v and use only letters, digits, . _ -"; exit 1
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ] && git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::Tag $TAG already exists - choose a new one"; exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "workflow_dispatch" ]; then echo "source=branch $BRANCH" >> "$GITHUB_OUTPUT"; else echo "source=tag $TAG" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Download the CI results
+        uses: actions/download-artifact@v4
+        with:
+          path: ci-results
+
+      - name: Build the release files
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          mkdir -p dist
+          git archive --format=zip --prefix="VEYRA-$TAG/" -o "dist/VEYRA-$TAG-source.zip" HEAD
+          if [ -d ci-results ] && [ -n "$(ls -A ci-results)" ]; then
+            (cd ci-results && zip -qr "../dist/VEYRA-$TAG-ci-results.zip" .)
+          fi
+          ls -la dist
+
+      - name: Write the release notes
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          SOURCE: ${{ steps.tag.outputs.source }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "## $TAG"
+            echo
+            echo "Built from $SOURCE, commit \`${GITHUB_SHA::7}\`."
+            echo
+            echo "Every check in the CI pipeline passed on this commit before it was released"
+            echo "([pipeline run]($RUN_URL)): lint, the self-tests on Linux and Windows, and every"
+            echo "simulation smoke test this iteration contains."
+            echo
+            echo "| File | What it is |"
+            echo "|---|---|"
+            echo "| \`VEYRA-$TAG-source.zip\` | The code of this iteration. Unzip, \`pip install -r requirements.txt\`, then follow README.md / PHASE*.md. |"
+            [ -f "dist/VEYRA-$TAG-ci-results.zip" ] && echo "| \`VEYRA-$TAG-ci-results.zip\` | Results folders and logs from the CI runs (readings, BC_ID record, Veins runs). |"
+            echo
+          } > notes.md
+          cat notes.md
+
+      - name: Create the tag and the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            --generate-notes
