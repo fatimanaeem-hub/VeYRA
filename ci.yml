@@ -1,0 +1,262 @@
+# VEYRA / PQ-VehicleGuard - continuous integration
+#
+# Runs on every push to any branch, on pull requests, and by hand
+# (Actions tab -> CI -> Run workflow). The same file works on every
+# iteration branch: a "detect" job looks at which parts of the project the
+# branch contains and only the matching jobs run.
+#
+#   lint            syntax errors and undefined names (ruff)            all branches
+#   python-tests    verify.py, testcase.py, run.py --headless           all branches
+#                   on Linux and Windows, Python 3.11 and 3.13
+#   service-smoke   gateway_service.py driven by fake_omnet.py          iteration 2 on
+#   sumo-smoke      gateway_service.py driven by SUMO (Erlangen)        iteration 2.5 on
+#   veins           builds OMNeT++ 6.1 + Veins 5.3.1 + veins_veyra,     iteration 3a on
+#                   runs Default / Replicated / BatchReg10Notice and
+#                   gates on the attack checks, ledger copies and BC_ID
+#
+# Every job's output (results folders, logs) is uploaded as a downloadable
+# artifact at the bottom of the run's page. See CI.md.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      veins:
+        description: "Also build and run OMNeT++/Veins (slow on the first run of a branch)"
+        type: boolean
+        default: true
+  workflow_call:          # used by release.yml, so a release is only made from a passing build
+    inputs:
+      veins:
+        type: boolean
+        default: true
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"                 # Windows consoles: print the em dashes and arrows in our output
+  PYTHONUNBUFFERED: "1"
+  SUMO_VERSION: "1.22.0"
+  VEINS_URL: https://github.com/sommer/veins/archive/refs/tags/veins-5.3.1.tar.gz
+
+jobs:
+  # ---------------------------------------------------------------------------
+  detect:
+    name: Detect project parts
+    runs-on: ubuntu-latest
+    outputs:
+      service: ${{ steps.d.outputs.service }}
+      sumo: ${{ steps.d.outputs.sumo }}
+      veins: ${{ steps.d.outputs.veins }}
+      configs: ${{ steps.d.outputs.configs }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: d
+        name: Look at what this branch contains
+        run: |
+          yes_if() { if "$@"; then echo true; else echo false; fi; }
+          service=$(yes_if test -f gateway_service.py -a -f fake_omnet.py)
+          sumo=$(yes_if test -f gateway_service.py -a -f sumo_driver.py)
+          veins=$(yes_if test -f veins_veyra/simulations/omnetpp.ini -a -f run_experiments.py)
+          configs="Default"
+          if [ "$veins" = true ]; then
+            for c in Replicated BatchReg10Notice; do
+              grep -q "^\[Config $c\]" veins_veyra/simulations/omnetpp.ini && configs="$configs $c"
+            done
+          fi
+          {
+            echo "service=$service"
+            echo "sumo=$sumo"
+            echo "veins=$veins"
+            echo "configs=$configs"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### What this branch contains"
+            echo "| Part | Present |"
+            echo "|---|---|"
+            echo "| Gateway service + fake_omnet.py | $service |"
+            echo "| SUMO driver | $sumo |"
+            echo "| OMNeT++/Veins project | $veins |"
+            if [ "$veins" = true ]; then echo "| Veins configurations tested | $configs |"; fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  lint:
+    name: Lint (syntax errors, undefined names)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install ruff
+      - run: ruff check --select E9,F63,F7,F82 --output-format github .
+
+  # ---------------------------------------------------------------------------
+  python-tests:
+    name: Tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install requirements
+        run: python -m pip install -r requirements.txt
+      - name: verify.py - crypto, ledger and adversarial self-check
+        run: python verify.py
+      - name: testcase.py - TC-01 end-to-end integrity of one reading
+        if: hashFiles('testcase.py') != ''
+        run: python testcase.py
+      - name: run.py --headless - proof-of-concept experiments
+        if: hashFiles('run.py') != ''
+        run: python run.py --headless
+      - name: Upload evidence/report.json
+        if: always() && matrix.os == 'ubuntu-latest' && matrix.python == '3.13'
+        uses: actions/upload-artifact@v4
+        with:
+          name: poc-evidence
+          path: evidence/report.json
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  service-smoke:
+    name: Gateway service + fake_omnet (${{ matrix.os }})
+    needs: detect
+    if: needs.detect.outputs.service == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - run: python -m pip install -r requirements.txt
+      - name: Run 150 simulated seconds with all attacks
+        run: python ci/smoke_service.py fake --duration 150
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: service-smoke-${{ matrix.os }}
+          path: results/ci/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  sumo-smoke:
+    name: Gateway service + SUMO (Erlangen)
+    needs: detect
+    if: needs.detect.outputs.sumo == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install requirements and SUMO ${{ env.SUMO_VERSION }} (headless, from PyPI)
+        run: python -m pip install -r requirements.txt "eclipse-sumo==$SUMO_VERSION" "traci==$SUMO_VERSION"
+      - name: Find the Erlangen scenario
+        id: map
+        run: |
+          if [ -f veins_veyra/simulations/erlangen.sumo.cfg ]; then
+            echo "cfg=veins_veyra/simulations/erlangen.sumo.cfg" >> "$GITHUB_OUTPUT"
+          else
+            # Iterations 2.5/2.6 use the Erlangen example that ships with Veins
+            mkdir -p "$RUNNER_TEMP/veins"
+            curl -fsSL "$VEINS_URL" | tar xz -C "$RUNNER_TEMP/veins" --wildcards '*/examples/veins/erlangen*'
+            echo "cfg=$(ls "$RUNNER_TEMP"/veins/*/examples/veins/erlangen.sumo.cfg)" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Run 150 simulated seconds of real traffic with all attacks
+        run: python ci/smoke_service.py sumo --duration 150 --sumocfg "${{ steps.map.outputs.cfg }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sumo-smoke
+          path: results/ci/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  veins:
+    name: OMNeT++/Veins build and runs
+    needs: detect
+    if: needs.detect.outputs.veins == 'true' && (github.event_name != 'workflow_dispatch' || inputs.veins)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CONFIGS: ${{ needs.detect.outputs.configs }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Toolchain folder
+        run: echo "TOOLS=$HOME/veyra-tools" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install compilers and build tools
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends clang lld bison flex perl make libxml2-dev zlib1g-dev
+      - name: Restore OMNeT++ and Veins from the cache
+        uses: actions/cache@v4
+        with:
+          path: ~/veyra-tools
+          key: veyra-tools-omnetpp6.1-veins5.3.1-ubuntu24.04-${{ hashFiles('ci/build_toolchain.sh') }}
+      - name: Build OMNeT++ 6.1 and Veins 5.3.1 (skipped when cached)
+        env:
+          OPP_PYTHON: python
+        run: bash ci/build_toolchain.sh
+      - name: Install requirements and SUMO ${{ env.SUMO_VERSION }}
+        run: python -m pip install -r requirements.txt "eclipse-sumo==$SUMO_VERSION" "traci==$SUMO_VERSION"
+      - name: Build veins_veyra
+        run: |
+          set +u; source "$TOOLS/omnetpp-6.1/setenv" -f; set -u
+          cd veins_veyra
+          # "python3 configure" rather than "./configure": files uploaded through the
+          # GitHub website lose their executable bit
+          python3 configure --with-veins="$TOOLS/veins-5.3.1"
+          make -j"$(nproc)" MODE=release
+      - name: Start veins_launchd (SUMO server for Veins)
+        run: |
+          "$TOOLS/veins-5.3.1/bin/veins_launchd" -vv -c sumo -d -L "$RUNNER_TEMP/veins_launchd.log"
+          for _ in $(seq 1 30); do (echo > /dev/tcp/127.0.0.1/9999) 2>/dev/null && exit 0; sleep 1; done
+          echo "veins_launchd did not start"; cat "$RUNNER_TEMP/veins_launchd.log"; exit 1
+      - name: Run ${{ needs.detect.outputs.configs }} (one seed each)
+        run: |
+          set +u; source "$TOOLS/omnetpp-6.1/setenv" -f; set -u
+          # shellcheck disable=SC2086  # $CONFIGS is a space-separated list on purpose
+          python run_experiments.py --configs $CONFIGS --seeds 1
+      - name: Check the results
+        run: |
+          # shellcheck disable=SC2086
+          python ci/check_veins.py $CONFIGS
+      - name: Collect results
+        if: always()
+        run: |
+          mkdir -p ci-artifact
+          cp -r results/batch-* results/omnet-run-* results/run-* ci-artifact/ 2>/dev/null || true
+          cp "$RUNNER_TEMP/veins_launchd.log" ci-artifact/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: veins-runs
+          path: ci-artifact/
+          if-no-files-found: ignore
