@@ -140,10 +140,14 @@ def main() -> int:
     reg_line = "not exported by this iteration"
     if run and (run / "bc_id.json").exists():
         reg = json.loads((run / "bc_id.json").read_text(encoding="utf-8"))
-        n = len(reg.get("identities", []))
+        n = reg.get("registered", len(reg.get("identities", [])))
         valid = reg.get("chain_valid")
         proofs = reg.get("inclusion_proofs_valid")
-        reg_line = f"{n} identities, chain_valid={valid}, inclusion proofs {proofs}"
+        reg_line = f"{n} identities, chain_valid={valid}"
+        if proofs:
+            reg_line += f", inclusion proofs {proofs}"
+        if not n:
+            failures.append("bc_id.json lists no registered identities")
         if valid is not True:
             failures.append("bc_id.json: hash chain does not verify")
         if isinstance(proofs, str) and "/" in proofs:

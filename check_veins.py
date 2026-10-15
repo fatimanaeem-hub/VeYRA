@@ -2,7 +2,7 @@
 """
 CI gate for the OMNeT++/Veins runs made by run_experiments.py.
 
-    python ci/check_veins.py Default Replicated BatchReg10Notice
+    python ci/check_veins.py Default Replicated
 
 Reads the newest results/batch-*/runs.csv, re-analyses every run with
 analyze_omnet.py, and fails (exit code 1) unless, for every configuration:

@@ -23,7 +23,7 @@ Actions ► Release ► Run workflow ──► the same CI ──► passes? ─
 | `ci/check_veins.py` | Pass/fail gate for the OMNeT++/Veins runs. |
 | `ci/build_toolchain.sh` | Builds OMNeT++ 6.1 (command line only) and Veins 5.3.1 on the Linux runner. The result is cached. |
 
-The same files work on every branch. A first job, *Detect project parts*, checks which parts the branch contains and starts only the jobs that apply. On `main` (the proof of concept) only Lint and Tests run; on `iter-3b-batchreg` everything runs.
+The same files work on every branch. A first job, *Detect project parts*, checks which parts the branch contains and starts only the jobs that apply. On `main` (the proof of concept) only Lint and Tests run; on `iter-3b-bcid` everything runs.
 
 ## What makes a run fail
 
@@ -31,7 +31,7 @@ The same files work on every branch. A first job, *Detect project parts*, checks
 |---|---|
 | Lint | A Python file has a syntax error or uses an undefined name |
 | Tests | `verify.py` (9 self-checks), `testcase.py` (TC-01) or `run.py --headless` fails |
-| Service smoke | An attack check fails, the service crashes, or `summary.json` is missing. From 3b-bcid on, it also fails if the BC_ID chain or an inclusion proof does not verify. |
+| Service smoke | An attack check fails, the service crashes, or `summary.json` is missing. From 3b-bcid on, it also fails if the BC_ID hash chain does not verify. |
 | SUMO smoke | Same checks, with real SUMO traffic (150 simulated seconds) |
 | Veins | OMNeT++ does not build or run, any of the 6 attack checks fails, no record reaches finality, the ledger copies disagree (3b on), or the BC_ID record does not verify (3b-bcid on) |
 
@@ -44,7 +44,7 @@ The same files work on every branch. A first job, *Detect project parts*, checks
 | Lint, Tests | 1–2 min |
 | Service smoke, SUMO smoke | about 2 min each |
 | Veins, first run on a branch | about 12–15 min (builds OMNeT++ and Veins once, then caches them, about 70 MB) |
-| Veins, later runs | about 5 min (build veins_veyra + 3 runs of about 1 min each) |
+| Veins, later runs | about 4 min (build veins_veyra + 2 runs of about 1 min each) |
 
 The jobs run in parallel. The cache belongs to one branch. A branch can also use `main`'s cache, but `main` never builds OMNeT++, so each iteration branch builds it once.
 
@@ -59,12 +59,12 @@ Open **Actions** and click a run.
 
 ## Making a release
 
-Go to **Actions → Release → Run workflow**, choose the branch, type a tag (for example `v3.2-3b-batchreg`) and click **Run workflow**. The release appears under **Releases** with two files:
+Go to **Actions → Release → Run workflow**, choose the branch, type a tag (for example `v3.1-3b-bcid`) and click **Run workflow**. The release appears under **Releases** with two files:
 - `VEYRA-<tag>-source.zip`: the code
 - `VEYRA-<tag>-ci-results.zip`: the CI evidence
 
 Badge for the README (replace OWNER/REPO):
 
 ```markdown
-![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=iter-3b-batchreg)
+![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=iter-3b-bcid)
 ```

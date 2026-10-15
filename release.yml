@@ -7,7 +7,7 @@
 #
 # Two ways to start it:
 #   1. Actions tab -> Release -> Run workflow -> pick the branch, type a tag
-#      such as v3.2-3b-batchreg -> Run. The workflow creates the tag itself.
+#      such as v3.1-3b-bcid -> Run. The workflow creates the tag itself.
 #   2. Push a tag that starts with "v" (only if you use Git on the command line).
 
 name: Release
@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag for this release, e.g. v3.2-3b-batchreg"
+        description: "Tag for this release, e.g. v3.1-3b-bcid"
         required: true
         type: string
       veins:

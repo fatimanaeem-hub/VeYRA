@@ -11,7 +11,7 @@
 #   service-smoke   gateway_service.py driven by fake_omnet.py          iteration 2 on
 #   sumo-smoke      gateway_service.py driven by SUMO (Erlangen)        iteration 2.5 on
 #   veins           builds OMNeT++ 6.1 + Veins 5.3.1 + veins_veyra,     iteration 3a on
-#                   runs Default / Replicated / BatchReg10Notice and
+#                   runs Default and (from 3b on) Replicated, and
 #                   gates on the attack checks, ledger copies and BC_ID
 #
 # Every job's output (results folders, logs) is uploaded as a downloadable
@@ -69,7 +69,7 @@ jobs:
           veins=$(yes_if test -f veins_veyra/simulations/omnetpp.ini -a -f run_experiments.py)
           configs="Default"
           if [ "$veins" = true ]; then
-            for c in Replicated BatchReg10Notice; do
+            for c in Replicated; do
               grep -q "^\[Config $c\]" veins_veyra/simulations/omnetpp.ini && configs="$configs $c"
             done
           fi
