@@ -175,7 +175,9 @@ Each run of the service writes to `results/run-<timestamp>/`:
 | File | Contents |
 |---|---|
 | `trace.csv` | One row per event: handshake, reading, publish, finalise, with `proc_ms`, bytes, outcome, the check that fired, `truth` |
-| `summary.json` | Totals, p50/p95/p99 processing times, bytes, time to finality (sim s), server-opened count, honest vs malicious readings accepted / published / finalised |
+| `summary.json` | Totals, p50/p95/p99 processing times, bytes, time to finality (sim s), server-opened count, honest vs malicious readings accepted / published / finalised; `registry` (the BC_ID record below) |
+| `bc_id.json` | The registration chain: one entry per block (identity, role, time, key digest, block and previous hash), identity root, `chain_valid` (hashes recomputed), refused handshakes, rejected registrations |
+| `bc_id.csv` | The blocks as a table |
 
 ## Mapping to the paper
 

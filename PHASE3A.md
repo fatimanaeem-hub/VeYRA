@@ -339,7 +339,8 @@ because it tries RSUs that can just be heard but are too weak to work with.
 | `run_info.json` | Which configuration and seed produced the folder |
 | `analysis.json` | Written by `analyze_omnet.py` |
 
-The service also writes its usual `results\run-<time>\` (trace and summary),
+The service also writes its usual `results\run-<time>\` (trace, summary and the
+BC_ID registration record `bc_id.json` / `bc_id.csv`),
 and OMNeT++ writes `.sca`/`.vec` files to `veins_veyra\simulations\results\`.
 
 ## Simplifications (state these in the report)

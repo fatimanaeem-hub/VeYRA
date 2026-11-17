@@ -55,7 +55,7 @@ delay and bytes, not correctness.
 | File | What |
 |---|---|
 | `pqdag/replica.py` | **New.** `ReplicaLedger`: one gateway's replica, gossip receive with orphan buffer, per-replica approval counting, share signing and certificate application; wire sizes |
-| `gateway_service.py` | Protocol v2. Ledger mode chosen by the RSUs' `HELLO`; `GOSSIP`, `SIG_SHARE`, `FINAL` handlers; `outbox` in replies; replication metrics; finality split into "waiting for approvals" and "certificate"; `--seed` |
+| `gateway_service.py` | Protocol v2. Ledger mode chosen by the RSUs' `HELLO`; `GOSSIP`, `SIG_SHARE`, `FINAL` handlers; `outbox` in replies; replication metrics; finality split into "waiting for approvals" and "certificate"; `--seed`; **registry export** (`bc_id.json`, `bc_id.csv`, `registry` in the summary) |
 | `pqdag/ledger.py` | Records when each transaction first reaches FT (for the finality split). Behaviour unchanged |
 | `veins_veyra/src/veyra/VeyraBackhaulPort.*` | **New.** Wired port of an RSU or the server: per-link queue, ACK + retransmission, `backhaul.csv` |
 | `veins_veyra/src/veyra/VeyraServerApp.*` | **New.** The server node on the backhaul |
@@ -65,7 +65,7 @@ delay and bytes, not correctness.
 | `veins_veyra/src/veyra/VeyraMessages.msg` | `VeyraBackhaulPkt` |
 | `veins_veyra/src/veyra/GatewayLink.*` | `jsonObjects()` to read the outbox |
 | `veins_veyra/simulations/omnetpp.ini` | The `Replicated*` configurations below |
-| `analyze_omnet.py` | New "Backhaul and replicas" section; gateway CPU busy %; finality split |
+| `analyze_omnet.py` | New "Backhaul and replicas" section; gateway CPU busy %; finality split; "Registered identities" lines |
 | `run_experiments.py` | Knows how many RSUs each configuration has; Phase 3b metrics in the summary; passes `--seed` |
 | `PROTOCOL.md` | v2 messages |
 
@@ -150,6 +150,32 @@ The usual output of `analyze_omnet.py`, plus a new section:
   Signature shares                670 signed, 443 received by the origin, 0 arrived after finality
   Replicas agree at the end       293 of 294 tx in every replica; 221 of 221 final everywhere
 ```
+
+## Registered identities (BC_ID record)
+
+Every run now saves the registration chain (BC_ID, Alg. 1) so you can show
+who was registered and prove the record was not altered. At the end of the
+run the gateway service writes, next to `summary.json` in `results\run-<time>\`:
+
+| File | Contents |
+|---|---|
+| `bc_id.json` | Count by role, identity root, `chain_valid`, one entry per block (index, pseudonymous identity, role, simulated time registered, public-key digest, block hash, previous hash, identity root after the block), refused handshakes (identity, car, gateway, time, reason) and rejected registrations |
+| `bc_id.csv` | The blocks as a table: `index, identity, role, registered_sim_s, pubkey_digest, block_hash, prev_hash, identity_root_after` |
+
+The same content is in `gateway_summary.json` under `registry`, and
+`analyze_omnet.py` prints:
+
+```
+  Registered identities (BC_ID)   23 (3 gateways, 20 sensors); hash chain intact; identity root b7882aa0541716fa
+  Refused at handshake            SN-intruder-eve
+```
+
+`chain_valid` is computed, not assumed: each block's hash is recomputed as
+`sha256(index, pd, role, pubkey_digest, prev, id_root)` and each `prev` must
+equal the previous block's hash (the genesis block is `sha256("bcid-genesis")`).
+Change any field of any block and the check reports the chain as broken.
+Identities are the pseudonyms the cars registered with, not SUMO names; the
+`vehicle` field of a refused handshake gives the SUMO car for reference.
 
 ## How it is measured
 

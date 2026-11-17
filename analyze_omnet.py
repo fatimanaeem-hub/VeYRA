@@ -175,6 +175,7 @@ def analyse(d: dict) -> dict:
         "server_opened": gw.get("server_opened_aggregates", {}),
         "honest_readings": gw.get("honest_readings", {}),
         "malicious_readings": gw.get("malicious_readings", {}),
+        "registry": gw.get("registry"),
         "crypto_backend": gw.get("config", {}).get("crypto_backend"),
         "FT": gw.get("config", {}).get("FT"),
     }
@@ -287,6 +288,14 @@ def print_one(a: dict) -> None:
           f"finalised {hr.get('finalised', '-')}")
     print(f"  False readings (ground truth)   accepted {mr.get('accepted', '-')}, "
           f"finalised {mr.get('finalised', '-')}   <- the gap VEYRA targets")
+    reg = c.get("registry")
+    if reg:
+        roles = ", ".join(f"{v} {k}{'s' if v != 1 else ''}" for k, v in sorted(reg["by_role"].items()))
+        refused = sorted({r["pd"] for r in reg["refused_handshakes"]})
+        print(f"  Registered identities (BC_ID)   {reg['registered']} ({roles}); hash chain "
+              + ("intact" if reg["chain_valid"] else "BROKEN") + f"; identity root {reg['identity_root'][:16]}")
+        print(f"  Refused at handshake            "
+              + (", ".join(refused) if refused else "none") + "   (full list: bc_id.json / gateway_summary.json)")
     print(f"  Ledger                          {c.get('ledger_mode', 'shared')}"
           + ("  (one replica per gateway)" if c.get("ledger_mode") == "replicated" else
              "  (all gateways write one ledger)"))

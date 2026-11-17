@@ -168,6 +168,7 @@ class GatewayService:
         self.outcomes_by_mode: dict[str, dict[str, int]] = {}
         self.server_opened = {"ok": 0, "failed": 0}
         self.readings_lost = 0
+        self.refused_handshakes: list[dict] = []   # identities refused at Alg. 2 line 10
         self.malicious = {"accepted": 0, "published": 0, "finalised": 0}
         self.honest = {"accepted": 0, "published": 0, "finalised": 0}
 
@@ -300,6 +301,11 @@ class GatewayService:
 
         self._count("handshakes_rejected")
         self._mode_outcome(mode, "handshake_rejected")
+        if len(self.refused_handshakes) < 500:
+            self.refused_handshakes.append({"pd": pd, "vehicle": vehicle, "gateway": g.gid,
+                                            "sim_s": round(self.sim.t, 3), "mode": mode,
+                                            "stage": "Alg.2 line 10",
+                                            "reason": res.get("error", "")})
         self._row(g, "HANDSHAKE", vehicle, mode, "", "reject", "Alg.2 line 10",
                   proc_ms, None, None, None, "", res.get("error", ""))
         self._say(f"{g.gid}: handshake REJECTED for {pd}: {res.get('error')}")
@@ -690,6 +696,41 @@ class GatewayService:
             "backhaul_payload_bytes": dict(self.backhaul_payload),
         }
 
+    # ---- BC_ID: the record of registered identities -----------------------
+    def registry(self) -> dict:
+        """The identity ledger (Alg. 1) as it stands: every registered node in
+        order, with its role, public-key digest and the hash chain, re-checked
+        here so the record shows it was not altered."""
+        chain = self.server.bc_id
+        blocks, valid, prev = [], True, None
+        for b in chain.blocks:
+            if b["index"] == 0:
+                ok = b["hash"] == crypto.sha256("bcid-genesis")
+            else:
+                ok = (b["prev"] == prev and b["hash"] == crypto.sha256(
+                    b["index"], b["pd"], b["role"], b["pubkey_digest"], b["prev"], b["id_root"]))
+            valid = valid and ok
+            prev = b["hash"]
+            blocks.append({"index": b["index"], "pd": b["pd"], "role": b["role"],
+                           "registered_sim_s": round(b["ts"], 3),
+                           "pubkey_digest": b.get("pubkey_digest", "")[:16],
+                           "block_hash": b["hash"][:16], "prev_hash": b["prev"][:16],
+                           "identity_root_after": b.get("id_root", "")[:16]})
+        roles: dict[str, int] = {}
+        for b in chain.blocks[1:]:
+            roles[b["role"]] = roles.get(b["role"], 0) + 1
+        return {
+            "registered": len(chain.blocks) - 1,
+            "by_role": roles,
+            "identity_root": chain.identity_root(),
+            "chain_valid": valid,
+            "blocks": blocks,
+            "refused_handshakes": self.refused_handshakes,
+            "rejected_registrations": [
+                {k: (round(v, 3) if isinstance(v, float) else v) for k, v in r.items()}
+                for r in self.server.rejected_registrations],
+        }
+
     # ---- STATS ----------------------------------------------------------
     def summary(self) -> dict:
         st = self.ledger.stats()
@@ -716,6 +757,7 @@ class GatewayService:
             "malicious_readings": self.malicious,
             "registered_identities": len(self.server.bc_id.leaves),
             "vehicles_seen": len(self.vehicles),
+            "registry": self.registry(),
         }
         if self.mode == "replicated":
             out["replication"] = self.replication_summary()
@@ -776,6 +818,16 @@ class GatewayService:
         self._trace_fh.close()
         path = self.out_dir / "summary.json"
         path.write_text(json.dumps(self.summary(), indent=2))
+        reg = self.registry()
+        (self.out_dir / "bc_id.json").write_text(json.dumps(reg, indent=2))
+        with open(self.out_dir / "bc_id.csv", "w", newline="") as f:   # opens in Excel
+            w = csv.writer(f)
+            w.writerow(["index", "identity", "role", "registered_sim_s", "pubkey_digest",
+                        "block_hash", "prev_hash", "identity_root_after"])
+            for b in reg["blocks"]:
+                w.writerow([b["index"], b["pd"], b["role"], b["registered_sim_s"],
+                            b["pubkey_digest"], b["block_hash"], b["prev_hash"],
+                            b["identity_root_after"]])
         clock.reset()
         return path
 

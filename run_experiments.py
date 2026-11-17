@@ -13,6 +13,12 @@ with veins_launchd already running in another window:
     python run_experiments.py --configs Default Replicated Replicated4G ReplicatedLossy --seeds 5
     python run_experiments.py --configs Replicated Replicated6 Replicated10 --seeds 3
 
+Iteration 2 detector dataset (ATTACKS.md): 10 seeds of every attack, honest runs and mixed-attack runs:
+
+    python run_experiments.py --seeds 10 --configs DS-Honest DS-ConstSpeedOffset DS-RandomSpeedOffset \
+        DS-ConstPosOffset DS-RandomPosOffset DS-SuddenStop DS-ZeroSpeed DS-FeignedBraking DS-DataReplay DS-DoS DS-Mixed
+    python export_dataset.py results/batch-<time>
+
 The number of RSUs (and so gateway ports) follows the configuration
 (Replicated6 -> 6, Replicated10 -> 10, everything else -> 3).
 
@@ -153,7 +159,8 @@ def main() -> int:
     for seed in range(1, args.seeds + 1):
         for cfg in args.configs:
             n += 1
-            vehicles = CONFIG_VEHICLES.get(cfg, args.vehicles)
+            # Iteration 2 dataset configs (DS-*) use 40 cars (omnetpp.ini [Config Dataset]).
+            vehicles = CONFIG_VEHICLES.get(cfg, 40 if cfg.startswith("DS-") else args.vehicles)
             ports = [9001 + i for i in range(CONFIG_RSUS.get(cfg, args.rsus))]
             tag = f"{cfg}-seed{seed}"
             print(f"[{n}/{total}] {tag}: starting gateway service ({vehicles} vehicles, "

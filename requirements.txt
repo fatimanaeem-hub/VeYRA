@@ -6,3 +6,6 @@ dilithium-py>=1.4.0
 # AES-256-GCM for the symmetric layer. If this is unavailable the prototype
 # falls back to a stdlib construction automatically.
 cryptography>=41.0.0
+
+# Iteration 2 dataset exporter (export_dataset.py) only
+# pandas numpy scipy pyarrow
